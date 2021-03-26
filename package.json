@@ -1,0 +1,36 @@
+{
+  "name": "frontend-only-web-template",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "dev:browser": "start http://localhost:4000",
+    "dev:react": "set NODE_ENV=development && webpack serve --config webpack.config.js --mode development",
+    "prod:react": "set NODE_ENV=production && webpack --config webpack.config.js --mode production -p"
+  },
+  "author": "TheApplePieGod",
+  "license": "ISC",
+  "dependencies": {
+    "@material-ui/core": "4.11.3",
+    "@material-ui/icons": "4.11.2",
+    "@material-ui/lab": "4.0.0-alpha.57",
+    "@types/react": "17.0.0",
+    "@types/react-dom": "17.0.0",
+    "@types/react-router-dom": "^5.1.7",
+    "memoize-one": "^5.1.1",
+    "react": "17.0.0",
+    "react-dom": "17.0.0",
+    "react-router-dom": "^5.2.0",
+    "react-transition-group": "^4.4.1"
+  },
+  "devDependencies": {
+    "awesome-typescript-loader": "^5.2.1",
+    "css-loader": "^5.1.1",
+    "html-webpack-plugin": "^5.2.0",
+    "style-loader": "^2.0.0",
+    "typescript": "^4.2.2",
+    "url-loader": "^4.1.1",
+    "webpack": "^5.24.3",
+    "webpack-cli": "^4.5.0",
+    "webpack-dev-server": "^3.11.2"
+  }
+}
