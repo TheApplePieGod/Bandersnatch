@@ -1,3 +1,4 @@
+import { Button } from '@material-ui/core';
 import React from 'react';
 import { Piece } from "../../definitions";
 import { Engine } from '../../engine/engine';
@@ -14,7 +15,7 @@ export class Board extends React.Component<Props, State> {
     canvasRef: React.RefObject<HTMLCanvasElement>;
     images: Record<number, HTMLImageElement>;
     engine: Engine;
-    cellSize = 75;
+    cellSize = 150;
     animationFrameId = 0;
     draggingIndex = -1;
     relativeMousePos = { x: 0, y: 0 };
@@ -88,42 +89,52 @@ export class Board extends React.Component<Props, State> {
         const { boardSize, board } = this.engine;
         const { cellSize, images, relativeMousePos } = this;
 
+        let validMoveIndexes: number[] = [];
+        for (let key in this.engine.allValidMoves) {
+            for (let i = 0; i < this.engine.allValidMoves[key].length; i++) {
+                validMoveIndexes.push(this.engine.allValidMoves[key][i].index);
+            }
+        }
+
         let xPos = 0;
         let yPos = 0;
         for (let y = 0; y < boardSize; y++) {
             for (let x = 0; x < boardSize; x++) {
-                ctx.fillStyle = (x + y) % 2 == 1 ? '#403e38' : '#ded6c1';
-                ctx.fillRect(xPos, yPos, cellSize, cellSize);
-                
                 const boardIndex = (y * boardSize) + x;
                 const piece = board[boardIndex];
-                if (piece != Piece.Empty)
+
+                ctx.fillStyle = (x + y) % 2 == 1 ? '#403e38' : '#ded6c1';
+                //if (this.debug && validMoveIndexes.includes(boardIndex))
+                //    ctx.fillStyle = '#d8f51d';
+                ctx.fillRect(xPos, yPos, cellSize, cellSize);
+                
+                if (piece != Piece.Empty) {
                     if (piece in images && images[piece].complete)
                         if (boardIndex != this.draggingIndex)
                             ctx.drawImage(images[piece], xPos, yPos, cellSize, cellSize);
+                }
+                if (this.debug) {
+                    ctx.fillStyle = '#ff000d';
+                    ctx.font = `${this.cellSize * 0.25}px arial`;
+                    ctx.fillText(boardIndex.toString(), xPos, yPos + cellSize);
+                }
                 xPos += cellSize;
             }
             yPos += cellSize;
             xPos = 0;
         }
 
-        if (this.debug) {
-            xPos = 0;
-            yPos = 0;
-            ctx.fillStyle = '#ff000d';
-            ctx.font = `${this.cellSize * 0.5}px arial`;
-            for (let y = 0; y < boardSize; y++) {
-                for (let x = 0; x < boardSize; x++) {
-                    const boardIndex = (y * boardSize) + x;
-                    ctx.fillText(boardIndex.toString(), xPos, yPos + cellSize);
-                    xPos += cellSize;
-                }
-                yPos += cellSize;
-                xPos = 0;
-            }
-        }
+        // debug texts
+        xPos = 0;
+        ctx.fillStyle = '#ff000d';
+        ctx.font = `${this.cellSize * 0.5}px arial`;
+        ctx.fillText(`White king index: ${this.engine.whiteKingIndex}`, xPos, yPos + cellSize);
+        yPos += cellSize;
+        ctx.fillText(`Black king index: ${this.engine.blackKingIndex}`, xPos, yPos + cellSize);
+        yPos += cellSize;
+        ctx.fillText(`Castle (W, B): ${this.engine.whiteCanCastle} / ${this.engine.blackCanCastle}`, xPos, yPos + cellSize);
 
-        if (this.draggingIndex != -1) {
+        if (this.draggingIndex >= 0 && this.draggingIndex < board.length) {
             const piece = board[this.draggingIndex];
             if (piece != Piece.Empty)
                 ctx.drawImage(images[piece], relativeMousePos.x - (cellSize * 0.5), relativeMousePos.y - (cellSize * 0.5), cellSize, cellSize);
@@ -167,6 +178,15 @@ export class Board extends React.Component<Props, State> {
             this.engine.stepForward();
     }
 
+    getAllMoves = () => {
+        // this.engine.calculateAllPossibleMoves(4).then((number) => 
+        //     console.log(number)
+        // );
+        //onsole.log(this.engine.calculateAllPossibleMoves(3));
+        this.engine.findBestMove(3, 0, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+        console.log(this.engine.evalBestMove);
+    }
+
     render = () => (
         <div>
             <canvas
@@ -175,8 +195,11 @@ export class Board extends React.Component<Props, State> {
                 onMouseDown={this.onMouseDown}
                 onMouseUp={this.onMouseUp}
                 width={this.cellSize * 8}
-                height={this.cellSize * 8}    
+                height={this.cellSize * 15}
             />
+            <Button onClick={this.engine.evalBotMove}>Bot Move</Button>
+            <Button onClick={() => this.debug = !this.debug}>Toggle debug</Button>
+            <Button onClick={this.getAllMoves}>Calc moves</Button>
         </div>
     );
 }

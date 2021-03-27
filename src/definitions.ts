@@ -13,3 +13,11 @@ export enum Piece {
     Knight_W = 11,
     Pawn_W = 12
 }
+
+export enum Value {
+    Pawn = 100,
+    Knight = 300,
+    Bishop = 300,
+    Rook = 500,
+    Queen = 900
+}
