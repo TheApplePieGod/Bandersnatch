@@ -13,6 +13,7 @@ interface HistoricalBoard {
 interface BoardDelta {
     index: number;
     piece: number;
+    target: number;
     canCastle: boolean[];
 }
 
@@ -43,6 +44,22 @@ export class Engine {
     zobristHashTable: bigInt.BigNumber[][] = [];
     savedEvaluations: Record<string, EvaluationData> = {};
     evalBestMove: EvalMove = { from: -1, to: -1, data: 0 };
+
+    whitePieceLocations: Record<number, number[]> = {
+        [Piece.Pawn_W]: [],
+        [Piece.Bishop_W]: [],
+        [Piece.Knight_W]: [],
+        [Piece.Queen_W]: [],
+        [Piece.Rook_W]: [],
+    }
+
+    blackPieceLocations: Record<number, number[]> = {
+        [Piece.Pawn_B]: [],
+        [Piece.Bishop_B]: [],
+        [Piece.Knight_B]: [],
+        [Piece.Queen_B]: [],
+        [Piece.Rook_B]: [],
+    }
 
     moveCount = 0;
     historicalBoards: HistoricalBoard[] = [];
@@ -183,7 +200,14 @@ export class Engine {
             for (let t = 0; t < terms.length; t++) {
                 const numberVal = parseInt(terms[t]);
                 if (isNaN(numberVal)) {
-                    board[boardIndex] = this.fenToPieceDict[terms[t]];
+                    const piece = this.fenToPieceDict[terms[t]];
+                    board[boardIndex] = piece;
+
+                    if (piece > 7)
+                        this.whitePieceLocations[piece].push(boardIndex);
+                    else if (piece < 7 && piece > 1)
+                        this.blackPieceLocations[piece].push(boardIndex);
+
                     boardIndex++;
                 }
                 else
@@ -514,18 +538,47 @@ export class Engine {
 
     forceMakeMove = (fromIndex: number, move: MoveInfo, finishTurn: boolean) => {
         const toIndex = move.index;
+        const movingPiece = this.board[fromIndex];
+        const capturedPiece = this.board[toIndex];
 
-        this.boardDelta.push({ index: toIndex, piece: this.board[toIndex], canCastle: [] });
-        this.boardDelta.push({ index: fromIndex, piece: this.board[fromIndex], canCastle: [] });
+        this.boardDelta.push({ index: toIndex, piece: capturedPiece, target: -1, canCastle: [] });
+        this.boardDelta.push({ index: fromIndex, piece: movingPiece, target: toIndex, canCastle: [] });
         this.board[toIndex] = this.board[fromIndex];
         this.board[fromIndex] = Piece.Empty;
 
         // promotion check
+        let promoted = false;
         const y = Math.floor(toIndex / this.boardSize);
-        if (this.board[toIndex] == Piece.Pawn_W && y == 0)
-            this.board[toIndex] = move.data; 
-        else if (this.board[toIndex] == Piece.Pawn_B && y == 7)
-            this.board[toIndex] = move.data; 
+        if (this.board[toIndex] == Piece.Pawn_W && y == 0) {
+            this.board[toIndex] = move.data;
+            this.whitePieceLocations[Piece.Pawn_W].splice(this.whitePieceLocations[Piece.Pawn_W].indexOf(fromIndex), 1); // remove pawn entry
+            this.whitePieceLocations[move.data].push(toIndex); // add new piece entry
+            promoted = true;
+        }
+        else if (this.board[toIndex] == Piece.Pawn_B && y == 7) {
+            this.board[toIndex] = move.data;
+            this.blackPieceLocations[Piece.Pawn_B].splice(this.blackPieceLocations[Piece.Pawn_B].indexOf(fromIndex), 1); // remove pawn entry
+            this.blackPieceLocations[move.data].push(toIndex); // add new piece entry
+            promoted = true;
+        }
+
+        // update moved piece position unless promoted since that is already handled
+        if (!promoted) {
+            if (movingPiece > 7) { // white
+                this.whitePieceLocations[movingPiece].splice(this.whitePieceLocations[movingPiece].indexOf(fromIndex), 1, toIndex); // update stored position
+            } else if (movingPiece > 1 && movingPiece < 7) { // black
+                this.blackPieceLocations[movingPiece].splice(this.blackPieceLocations[movingPiece].indexOf(fromIndex), 1, toIndex); // update stored position
+            }
+        }
+
+        // remove captured piece
+        if (capturedPiece != Piece.Empty) {
+            if (capturedPiece > 7) { // white
+                this.whitePieceLocations[capturedPiece].splice(this.whitePieceLocations[capturedPiece].indexOf(toIndex), 1); // remove entry
+            } else if (capturedPiece > 1 && capturedPiece < 7) { // black
+                this.blackPieceLocations[capturedPiece].splice(this.blackPieceLocations[capturedPiece].indexOf(toIndex), 1); // remove entry
+            }
+        }
 
         if (finishTurn)
             this.finishTurn();
@@ -534,7 +587,15 @@ export class Engine {
     unmakeMove = (deltas: BoardDelta[]) => {
         this.whiteTurn = !this.whiteTurn;
         for (let i = 0; i < deltas.length; i++) {
+            const capture = this.board[deltas[i].index]
             this.board[deltas[i].index] = deltas[i].piece;
+
+            // if (deltas[i].piece > 7) { // white
+            //     this.whitePieceLocations[deltas[i].piece] 
+            // } else if (deltas[i].piece > 1 && capturdeltas[i].pieceedPiece < 7) { // black
+            //     this.blackPieceLocations[capturedPiece].splice(this.blackPieceLocations[capturedPiece].indexOf(toIndex), 1); // remove entry
+            // }
+
             if (deltas[i].piece == Piece.King_W)
                 this.whiteKingIndex = deltas[i].index;
             else if (deltas[i].piece == Piece.King_B)
@@ -553,17 +614,17 @@ export class Engine {
         
         if (movingPiece == Piece.King_W) {
             if (this.whiteCanCastle[0] && toIndex == 62) {
-                this.boardDelta.push({ index: 63, piece: this.board[63], canCastle: [...this.whiteCanCastle] });
-                this.boardDelta.push({ index: 61, piece: this.board[61], canCastle: [...this.whiteCanCastle] });
+                this.boardDelta.push({ index: 63, piece: this.board[63], target: 61, canCastle: [...this.whiteCanCastle] });
+                this.boardDelta.push({ index: 61, piece: this.board[61], target: -1, canCastle: [...this.whiteCanCastle] });
                 this.board[63] = Piece.Empty;
                 this.board[61] = Piece.Rook_W;
             } else if (this.whiteCanCastle[1] && toIndex == 58) {
-                this.boardDelta.push({ index: 56, piece: this.board[56], canCastle: [...this.whiteCanCastle] });
-                this.boardDelta.push({ index: 59, piece: this.board[59], canCastle: [...this.whiteCanCastle] });
+                this.boardDelta.push({ index: 56, piece: this.board[56], target: 59, canCastle: [...this.whiteCanCastle] });
+                this.boardDelta.push({ index: 59, piece: this.board[59], target: -1, canCastle: [...this.whiteCanCastle] });
                 this.board[56] = Piece.Empty;
                 this.board[59] = Piece.Rook_W;
             } else {
-                this.boardDelta.push({ index: fromIndex, piece: Piece.King_W, canCastle: [...this.whiteCanCastle] });
+                this.boardDelta.push({ index: fromIndex, piece: Piece.King_W, target: toIndex, canCastle: [...this.whiteCanCastle] });
             }
 
             this.whiteKingIndex = toIndex;
@@ -571,36 +632,36 @@ export class Engine {
         }
         else if (movingPiece == Piece.King_B) {
             if (this.blackCanCastle[0] && toIndex == 6) {
-                this.boardDelta.push({ index: 7, piece: this.board[7], canCastle: [...this.blackCanCastle] });
-                this.boardDelta.push({ index: 5, piece: this.board[5], canCastle: [...this.blackCanCastle] });
+                this.boardDelta.push({ index: 7, piece: this.board[7], target: 5, canCastle: [...this.blackCanCastle] });
+                this.boardDelta.push({ index: 5, piece: this.board[5], target: -1, canCastle: [...this.blackCanCastle] });
                 this.board[7] = Piece.Empty;
                 this.board[5] = Piece.Rook_B;
             } else if (this.blackCanCastle[1] && toIndex == 2) {
-                this.boardDelta.push({ index: 0, piece: this.board[0], canCastle: [...this.blackCanCastle] });
-                this.boardDelta.push({ index: 3, piece: this.board[3], canCastle: [...this.blackCanCastle] });
+                this.boardDelta.push({ index: 0, piece: this.board[0], target: 3, canCastle: [...this.blackCanCastle] });
+                this.boardDelta.push({ index: 3, piece: this.board[3], target: -1, canCastle: [...this.blackCanCastle] });
                 this.board[0] = Piece.Empty;
                 this.board[3] = Piece.Rook_B;
             } else {
-                this.boardDelta.push({ index: fromIndex, piece: Piece.King_B, canCastle: [...this.blackCanCastle] });
+                this.boardDelta.push({ index: fromIndex, piece: Piece.King_B, target: toIndex, canCastle: [...this.blackCanCastle] });
             }
 
             this.blackKingIndex = toIndex;
             this.blackCanCastle = [false, false];
         }
         else if (movingPiece == Piece.Rook_W && fromIndex == 56) {
-            this.boardDelta.push({ index: fromIndex, piece: movingPiece, canCastle: [...this.whiteCanCastle] });
+            this.boardDelta.push({ index: fromIndex, piece: movingPiece, target: toIndex, canCastle: [...this.whiteCanCastle] });
             this.whiteCanCastle[1] = false; // queenside
         }
         else if (movingPiece == Piece.Rook_W && fromIndex == 63) {
-            this.boardDelta.push({ index: fromIndex, piece: movingPiece, canCastle: [...this.whiteCanCastle] });
+            this.boardDelta.push({ index: fromIndex, piece: movingPiece, target: toIndex, canCastle: [...this.whiteCanCastle] });
             this.whiteCanCastle[0] = false; // kingside
         }
         else if (movingPiece == Piece.Rook_B && fromIndex == 0) {
-            this.boardDelta.push({ index: fromIndex, piece: movingPiece, canCastle: [...this.blackCanCastle] });
+            this.boardDelta.push({ index: fromIndex, piece: movingPiece, target: toIndex, canCastle: [...this.blackCanCastle] });
             this.blackCanCastle[1] = false; // queenside
         }
         else if (movingPiece == Piece.Rook_B && fromIndex == 7) {
-            this.boardDelta.push({ index: fromIndex, piece: movingPiece, canCastle: [...this.blackCanCastle] });
+            this.boardDelta.push({ index: fromIndex, piece: movingPiece, target: toIndex, canCastle: [...this.blackCanCastle] });
             this.blackCanCastle[0] = false; // kingside
         }
     }    
@@ -893,9 +954,9 @@ export class Engine {
         this.updateCastleStatus(fromIndex, toIndex);
         this.forceMakeMove(fromIndex, { index: toIndex, data: Piece.Queen_W }, true); // auto promote to queen when possible
 
-        //if (this.moveCount == 1)
-        //    this.forceMakeMove(11, { index: 27, data: Piece.Queen_W }, true); // d5
-        //else
+        if (this.moveCount == 1)
+            this.forceMakeMove(11, { index: 27, data: Piece.Queen_W }, true); // d5
+        else
             this.evalBotMove();
     }
 }
