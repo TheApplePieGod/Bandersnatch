@@ -104,8 +104,8 @@ export class Board extends React.Component<Props, State> {
                 const piece = board[boardIndex];
 
                 ctx.fillStyle = (x + y) % 2 == 1 ? '#403e38' : '#ded6c1';
-                //if (this.debug && validMoveIndexes.includes(boardIndex))
-                //    ctx.fillStyle = '#d8f51d';
+                if (this.debug && validMoveIndexes.includes(boardIndex))
+                    ctx.fillStyle = '#d8f51d';
                 ctx.fillRect(xPos, yPos, cellSize, cellSize);
                 
                 if (piece != Piece.Empty) {
@@ -187,6 +187,54 @@ export class Board extends React.Component<Props, State> {
         console.log(this.engine.evalBestMove);
     }
 
+    getPieceName = (piece: number) => {
+        switch (piece) {
+            case Piece.Pawn_W:
+            case Piece.Pawn_B:
+                return "Pawn";
+            case Piece.Knight_W:
+            case Piece.Knight_B:
+                return "Knight";
+            case Piece.Bishop_W:
+            case Piece.Bishop_B:
+                return "Bishop";
+            case Piece.Rook_W:
+            case Piece.Rook_B:
+                return "Rook";
+            case Piece.Queen_W:
+            case Piece.Queen_B:
+                return "Queen";
+            case Piece.King_W:
+            case Piece.King_B:
+                return "King";
+            default:
+                return "N/A";
+        }
+    }
+
+    printPieceLocations = () => {
+        let finalString = "White:\n";
+        const dictionaries = [this.engine.whitePieceLocations, this.engine.blackPieceLocations];
+
+        for (let i = 0; i < dictionaries.length; i++) {
+            if (i == 1)
+                finalString += "\nBlack:\n";
+            for (let key in dictionaries[i]) {
+                const pieceIndex = parseInt(key);
+                if (isNaN(pieceIndex))
+                    continue;
+
+                let line = `${this.getPieceName(pieceIndex)}: `;
+                for (let j = 0; j < dictionaries[i][key].length; j++) {
+                    line += dictionaries[i][key][j].toString() + ',';
+                }
+
+                finalString += line + '\n';
+            }
+        }
+        console.log(finalString);
+    }
+
     render = () => (
         <div>
             <canvas
@@ -195,11 +243,12 @@ export class Board extends React.Component<Props, State> {
                 onMouseDown={this.onMouseDown}
                 onMouseUp={this.onMouseUp}
                 width={this.cellSize * 8}
-                height={this.cellSize * 15}
+                height={this.cellSize * 10}
             />
-            <Button onClick={this.engine.evalBotMove}>Bot Move</Button>
+            <Button onClick={() => this.engine.evalBotMove(6)}>Bot Move</Button>
             <Button onClick={() => this.debug = !this.debug}>Toggle debug</Button>
             <Button onClick={this.getAllMoves}>Calc moves</Button>
+            <Button onClick={this.printPieceLocations}>Print piece locations</Button>
         </div>
     );
 }
