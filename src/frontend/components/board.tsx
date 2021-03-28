@@ -1,4 +1,5 @@
 import { Button } from '@material-ui/core';
+import bigInt from 'big-integer';
 import React from 'react';
 import { Piece } from "../../definitions";
 import { Engine } from '../../engine/engine';
@@ -236,9 +237,9 @@ export class Board extends React.Component<Props, State> {
     }
 
     botMove = () => {
-        if (this.engine.moveCount < 10)
-           this.engine.evalBotMove(6);
-        else if (this.engine.moveCount < 30)
+        if (this.engine.moveCount < 20)
+           this.engine.evalBotMove(5);
+        else if (this.engine.moveCount < 60)
             this.engine.evalBotMove(6);
         else
             this.engine.evalBotMove(7);

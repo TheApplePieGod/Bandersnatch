@@ -5,7 +5,7 @@
   "scripts": {
     "dev:browser": "start http://localhost:4000",
     "dev:react": "set NODE_ENV=development && webpack serve --config webpack.config.js --mode development",
-    "prod:react": "set NODE_ENV=production && webpack --config webpack.config.js --mode production -p"
+    "prod:react": "set NODE_ENV=production && webpack --config webpack.config.js --mode production"
   },
   "author": "TheApplePieGod",
   "license": "ISC",

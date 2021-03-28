@@ -41,9 +41,9 @@ export class Engine {
     boardSize = 8;
     board: number[] = [];
     boardDelta: BoardDelta[] = [];
-    boardHash: bigInt.BigNumber = bigInt(0);
+    boardHash = BigInt(0);
 
-    zobristHashTable: bigInt.BigNumber[][] = [];
+    zobristHashTable: bigint[][] = [];
     savedEvaluations: Record<string, EvaluationData> = {};
     savedValidMoves: Record<string, Record<number, MoveInfo[]>> = {};
     evalBestMove: EvalMove = { from: -1, to: -1, data: 0 };
@@ -111,7 +111,7 @@ export class Engine {
         for (let i = 0; i < 64; i++) {
             this.zobristHashTable.push([]);
             for (let j = 0; j < 12; j++) {
-                this.zobristHashTable[i].push(bigInt.randBetween(0, maxVal));
+                this.zobristHashTable[i].push(BigInt(bigInt.randBetween(0, maxVal)));
             }
         }
 
@@ -119,12 +119,12 @@ export class Engine {
         for (let i = 0; i < 4; i++) {
             this.zobristHashTable.push([]);
             for (let j = 0; j < 2; j++) {
-                this.zobristHashTable[i + 64].push(bigInt.randBetween(0, maxVal));
+                this.zobristHashTable[i + 64].push(BigInt(bigInt.randBetween(0, maxVal)));
             }
         }
 
         // turn
-        this.zobristHashTable.push([bigInt.randBetween(0, maxVal), bigInt.randBetween(0, maxVal)]);
+        this.zobristHashTable.push([BigInt(bigInt.randBetween(0, maxVal)), BigInt(bigInt.randBetween(0, maxVal))]);
 
         this.boardHash = this.hashBoard();
     }
@@ -181,24 +181,24 @@ export class Engine {
     }
 
     hashBoard = () => {
-        let hash: bigInt.BigNumber = bigInt(0);
+        let hash = BigInt(0);
         
         // board values
         for (let i = 0; i < this.board.length; i++) {
             if (this.board[i] != Piece.Empty) {
                 const j = this.board[i] - 1;
-                hash = hash.xor(this.zobristHashTable[i][j]);
+                hash = hash ^ this.zobristHashTable[i][j];
             }
         }
 
         // castle values
-        hash = hash.xor(this.zobristHashTable[64][(this.whiteCanCastle[0] ? 0 : 1)]);
-        hash = hash.xor(this.zobristHashTable[65][(this.whiteCanCastle[1] ? 0 : 1)]);
-        hash = hash.xor(this.zobristHashTable[66][(this.blackCanCastle[0] ? 0 : 1)]);
-        hash = hash.xor(this.zobristHashTable[67][(this.blackCanCastle[1] ? 0 : 1)]);
+        hash = hash ^ this.zobristHashTable[64][(this.whiteCanCastle[0] ? 0 : 1)];
+        hash = hash ^ this.zobristHashTable[65][(this.whiteCanCastle[1] ? 0 : 1)];
+        hash = hash ^ this.zobristHashTable[66][(this.blackCanCastle[0] ? 0 : 1)];
+        hash = hash ^ this.zobristHashTable[67][(this.blackCanCastle[1] ? 0 : 1)];
 
         // turn
-        hash = hash.xor(this.zobristHashTable[68][(this.whiteTurn ? 0 : 1)]);
+        hash = hash ^ this.zobristHashTable[68][(this.whiteTurn ? 0 : 1)];
 
         return hash;
     }
@@ -596,6 +596,8 @@ export class Engine {
         this.boardHash = this.hashBoard();
         this.boardDelta = [];
         this.allValidMoves = this.getAllValidMoves(false);
+        this.savedEvaluations = {};
+        this.savedValidMoves = {};
         this.moveCount++;
     }
 
@@ -768,21 +770,22 @@ export class Engine {
         return count;
     }
 
-    updateHash = (delta: BoardDelta[], hash: bigInt.BigNumber) => {
-        let newHash = bigInt(0).add(hash);
+    updateHash = (delta: BoardDelta[], hash: bigint) => {
+        let newHash = hash;
         for (let i = 0; i < delta.length; i++) {
             if (delta[i].index != -1) { // -1 entries are usually for tracking, so don't worry about them when updating the hash
                 const pos = delta[i].index;
                 const piece = delta[i].piece - 1;
                 const newPiece = this.board[pos] - 1;
                 if (piece >= 0)
-                    newHash = newHash.xor(this.zobristHashTable[pos][piece]);
+                    newHash = newHash ^ this.zobristHashTable[pos][piece];
                 if (newPiece >= 0)
-                    newHash = newHash.xor(this.zobristHashTable[pos][newPiece]);
+                    newHash = newHash ^ this.zobristHashTable[pos][newPiece];
             }
         }
-        newHash = newHash.xor(this.zobristHashTable[68][(this.whiteTurn ? 0 : 1)]);
-        newHash = newHash.xor(this.zobristHashTable[68][(this.whiteTurn ? 1 : 0)]);
+
+        newHash = newHash ^ this.zobristHashTable[68][(this.whiteTurn ? 0 : 1)];
+        newHash = newHash ^ this.zobristHashTable[68][(this.whiteTurn ? 1 : 0)];
         return newHash;
     }
 
@@ -1092,6 +1095,8 @@ export class Engine {
         //console.log(this.evalBestMove.from, this.evalBestMove.to);
         this.updateCastleStatus(this.evalBestMove.from, this.evalBestMove.to);
         this.forceMakeMove(this.evalBestMove.from, { index: this.evalBestMove.to, data: this.evalBestMove.data }, true);
+
+        setTimeout(() => this.evalBotMove(6), 500);
     }
 
     attemptMove = (fromIndex: number, toIndex: number) => {
