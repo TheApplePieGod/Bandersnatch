@@ -104,8 +104,8 @@ export class Board extends React.Component<Props, State> {
                 const piece = board[boardIndex];
 
                 ctx.fillStyle = (x + y) % 2 == 1 ? '#403e38' : '#ded6c1';
-                if (this.debug && validMoveIndexes.includes(boardIndex))
-                    ctx.fillStyle = '#d8f51d';
+                //if (this.debug && validMoveIndexes.includes(boardIndex))
+                //    ctx.fillStyle = '#d8f51d';
                 ctx.fillRect(xPos, yPos, cellSize, cellSize);
                 
                 if (piece != Piece.Empty) {
@@ -235,8 +235,21 @@ export class Board extends React.Component<Props, State> {
         console.log(finalString);
     }
 
+    botMove = () => {
+        if (this.engine.moveCount < 10)
+           this.engine.evalBotMove(6);
+        else if (this.engine.moveCount < 30)
+            this.engine.evalBotMove(6);
+        else
+            this.engine.evalBotMove(7);
+    }
+
     render = () => (
         <div>
+            <Button onClick={this.botMove}>Bot Move</Button>
+            <Button onClick={() => this.debug = !this.debug}>Toggle debug</Button>
+            <Button onClick={this.getAllMoves}>Calc moves</Button>
+            <Button onClick={this.printPieceLocations}>Print piece locations</Button>
             <canvas
                 ref={this.canvasRef}
                 onMouseMove={this.onMouseMove}
@@ -245,10 +258,6 @@ export class Board extends React.Component<Props, State> {
                 width={this.cellSize * 8}
                 height={this.cellSize * 10}
             />
-            <Button onClick={() => this.engine.evalBotMove(6)}>Bot Move</Button>
-            <Button onClick={() => this.debug = !this.debug}>Toggle debug</Button>
-            <Button onClick={this.getAllMoves}>Calc moves</Button>
-            <Button onClick={this.printPieceLocations}>Print piece locations</Button>
         </div>
     );
 }

@@ -1,5 +1,5 @@
 import bigInt from "big-integer";
-import { Piece, Value } from "../definitions";
+import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value } from "../definitions";
 
 interface HistoricalBoard {
     board: number[];
@@ -45,6 +45,7 @@ export class Engine {
 
     zobristHashTable: bigInt.BigNumber[][] = [];
     savedEvaluations: Record<string, EvaluationData> = {};
+    savedValidMoves: Record<string, Record<number, MoveInfo[]>> = {};
     evalBestMove: EvalMove = { from: -1, to: -1, data: 0 };
 
     whitePieceLocations: Record<number, number[]> = {
@@ -93,8 +94,8 @@ export class Engine {
         this.board = [];
 
         let startingFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-        //startingFEN = "7k/P7/8/8/8/8/8/K w - - 1 8";
-        startingFEN = "1rk4r/1pp3pp/p2b4/1n3P2/6P1/2nK4/7P/8 b - - 0 1";
+        //startingFEN = "5ppp/4Ppkp/5ppp/8/6q1/5P2/1K6/8 w - - 0 1";
+        //startingFEN = "1rk4r/1pp3pp/p2b4/1n3P2/6P1/2nK4/7P/8 b - - 0 1";
         this.board = this.parseFEN(startingFEN);
         for (let i = 0; i < this.board.length; i++) {
             if (this.board[i] == Piece.King_W)
@@ -426,8 +427,11 @@ export class Engine {
             const piece = parseInt(key);
             if (isNaN(piece) || piece == Piece.Empty)
                 continue;
-            for (let i = 0; i < pieces[key].length; i++) {
-                const location = pieces[key][i];
+
+            const locations = pieces[key];
+            const length = locations.length;
+            for (let i = 0; i < length; i++) {
+                const location = locations[i];
                 if (location == toIndex) // when searching for valid moves, instead of modifying the piece dictionaries, just ignore any piece that would have been captured
                     continue;
                 this.getValidSquares(location, piece, true, attackedSquares);
@@ -500,6 +504,11 @@ export class Engine {
     }
 
     getAllValidMoves = (bothSides: boolean) => {
+        const hashString = this.boardHash.toString();
+        if (hashString in this.savedValidMoves) {
+            return this.savedValidMoves[hashString];
+        }
+
         let allValid: Record<number, MoveInfo[]> = {};
 
         const validCastleSquares = this.getValidCastleSquares();
@@ -519,13 +528,18 @@ export class Engine {
             const movingPiece = parseInt(key);
             if (isNaN(movingPiece) || movingPiece == Piece.Empty)
                 continue;
-            for (let i = 0; i < pieces[key].length; i++) {
-                const location = pieces[key][i];
+
+            const locations = pieces[key];
+            const length = locations.length;
+            for (let i = 0; i < length; i++) {
+                const location = locations[i];
 
                 let valid: number[] = [];
                 this.getValidSquares(location, movingPiece, false, valid);
                 this.board[location] = Piece.Empty;
-                for (let j = 0; j < valid.length; j++) {
+
+                const validLength = valid.length;
+                for (let j = 0; j < validLength; j++) {
                     const pieceBackup = this.board[valid[j]];
                     this.board[valid[j]] = movingPiece;
                     const attacked = this.getAttackedSquares(this.whiteTurn, valid[j]);
@@ -572,6 +586,7 @@ export class Engine {
             pieces[Piece.King_B] = [];
         }
 
+        this.savedValidMoves[hashString] = allValid;
         return allValid;
     }
 
@@ -653,9 +668,17 @@ export class Engine {
                     }
                 } else if (deltas[i].target != -1) { // otherwise just move it back
                     if (deltas[i].piece > 7) { // white
-                        this.whitePieceLocations[deltas[i].piece].splice(this.whitePieceLocations[deltas[i].piece].indexOf(deltas[i].target), 1, deltas[i].index); // replace with new location
+                        const foundIndex = this.whitePieceLocations[deltas[i].piece].indexOf(deltas[i].target);
+                        if (foundIndex != -1)
+                            this.whitePieceLocations[deltas[i].piece].splice(foundIndex, 1, deltas[i].index); // replace with new location
+                        else
+                            this.whitePieceLocations[deltas[i].piece].push(deltas[i].index);
                     } else if (deltas[i].piece > 1 && deltas[i].piece < 7) { // black
-                        this.blackPieceLocations[deltas[i].piece].splice(this.blackPieceLocations[deltas[i].piece].indexOf(deltas[i].target), 1, deltas[i].index); // replace with new location
+                        const foundIndex = this.blackPieceLocations[deltas[i].piece].indexOf(deltas[i].target);
+                        if (foundIndex != -1)
+                            this.blackPieceLocations[deltas[i].piece].splice(foundIndex, 1, deltas[i].index); // replace with new location
+                        else
+                            this.blackPieceLocations[deltas[i].piece].push(deltas[i].index);
                     }
                 }
             }
@@ -765,18 +788,20 @@ export class Engine {
 
     predictAndOrderMoves = (moves: Record<number, MoveInfo[]>) => {
         let finalMoves: { move: EvalMove, score: number }[] = [];
-        const attacked: number[] = [];// this.getAttackedSquares(this.whiteTurn);
+        const attacked: number[] = [];//this.getAttackedSquares(this.whiteTurn, -1);
 
         for (let key in moves) {
-            for (let i = 0; i < moves[key].length; i++) {
-                const pieceIndex = parseInt(key);
-                if (isNaN(pieceIndex))
-                    continue;
+            const pieceIndex = parseInt(key);
+            if (isNaN(pieceIndex))
+                continue;
 
+            const movesInfo = moves[key];
+            const movesInfoLength = moves[key].length;
+            for (let i = 0; i < movesInfoLength; i++) {
                 let score = 0;
                 const movingPiece = this.board[pieceIndex];
-                const capturingPiece = this.board[moves[key][i].index];
-                const promoting = moves[key][i].data;
+                const capturingPiece = this.board[movesInfo[i].index];
+                const promoting = movesInfo[i].data;
 
                 if (capturingPiece != Piece.Empty) {
                     score = 10 * this.getPieceValue(capturingPiece) - this.getPieceValue(movingPiece); // apply a higher score for lower val piece capturing higher val
@@ -811,7 +836,7 @@ export class Engine {
                     }
                 }
 
-                finalMoves.push({ move: { from: pieceIndex, to: moves[key][i].index, data: moves[key][i].data }, score: score });
+                finalMoves.push({ move: { from: pieceIndex, to: movesInfo[i].index, data: movesInfo[i].data }, score: score });
             }
         }
 
@@ -821,6 +846,55 @@ export class Engine {
         return finalMoves;
     }
 
+    readSquareTableValue = (index: number, table: number[], white: boolean) => {
+        if (!white)
+            index = 63 - index;
+        return table[index];
+    }
+
+    evaluateSquareTable = (piece: number, table: number[], white: boolean) => {
+        let value = 0;
+        if (piece == Piece.Empty)
+            return 0;
+
+        if (white) {
+            const positions = this.whitePieceLocations[piece];
+            const length = positions.length;
+            for (let i = 0; i < length; i++) {
+                value += this.readSquareTableValue(positions[i], table, white);
+            }
+        } else {
+            const positions = this.blackPieceLocations[piece];
+            const length = positions.length;
+            for (let i = 0; i < length; i++) {
+                value += this.readSquareTableValue(positions[i], table, white);
+            }
+        }
+
+        return value;
+    }
+
+    evaluateSquareTables = (white: boolean) => {
+        let value = 0;
+
+        // ugly
+        if (white) {
+            value += this.evaluateSquareTable(Piece.Pawn_W, pawnSquareTable, white);
+            value += this.evaluateSquareTable(Piece.Rook_W, rookSquareTable, white);
+            value += this.evaluateSquareTable(Piece.Knight_W, knightSquareTable, white);
+            value += this.evaluateSquareTable(Piece.Bishop_W, bishopSquareTable, white);
+            value += this.evaluateSquareTable(Piece.Queen_W, queenSquareTable, white);
+        } else {
+            value += this.evaluateSquareTable(Piece.Pawn_B, pawnSquareTable, white);
+            value += this.evaluateSquareTable(Piece.Rook_B, rookSquareTable, white);
+            value += this.evaluateSquareTable(Piece.Knight_B, knightSquareTable, white);
+            value += this.evaluateSquareTable(Piece.Bishop_B, bishopSquareTable, white);
+            value += this.evaluateSquareTable(Piece.Queen_B, queenSquareTable, white);
+        }
+
+        return value;
+    }
+
     evaluate = () => {
         const whiteMaterial = this.countMaterial(true);
         const blackMaterial = this.countMaterial(false);
@@ -828,6 +902,9 @@ export class Engine {
         let whiteEval = whiteMaterial;
         let blackEval = blackMaterial;
         
+        whiteEval += this.evaluateSquareTables(true);
+        blackEval += this.evaluateSquareTables(false);
+
         let evaluation = whiteEval - blackEval;
         if (!this.whiteTurn)
             evaluation *= -1;
@@ -860,16 +937,16 @@ export class Engine {
     countMaterial = (white: boolean) => {
         let value: number = 0;
 
-        for (let i = 0; i < this.board.length; i++) {
-            const movingPiece = this.board[i];
-            if (movingPiece == Piece.Empty)
+        let pieces: Record<number, number[]> = this.blackPieceLocations;
+        if (white)
+            pieces = this.whitePieceLocations;
+
+        for (let key in pieces) {
+            const pieceIndex = parseInt(key);
+            if (isNaN(pieceIndex))
                 continue;
 
-            // only count pieces of specified color
-            if ((white && movingPiece < Piece.King_W) || (!white && movingPiece > Piece.Pawn_B))
-                continue;
-
-            value += this.getPieceValue(movingPiece);
+            value += this.getPieceValue(pieceIndex) * pieces[key].length;
         }
 
         return value;
@@ -887,18 +964,28 @@ export class Engine {
             return this.savedEvaluations[hashString].eval;
         }
 
+        if (offset > 0) {
+            // modify the values to skip this position if a mating sequence has already been found and is shorter
+            alpha = Math.max(alpha, Number.MIN_SAFE_INTEGER + offset);
+            beta = Math.min(beta, Number.MAX_SAFE_INTEGER - offset);
+            if (alpha >= beta)
+                return alpha;
+        }
+
         const validMoves = this.getAllValidMoves(false);
-        if (Object.keys(validMoves).length == 0) { // either checkmate or stalemate
+        const sortedMoves = this.predictAndOrderMoves(validMoves);
+        if (sortedMoves.length == 0) { // either checkmate or stalemate
             if (this.isInCheck(this.whiteTurn))
-                return Number.MIN_SAFE_INTEGER; // checkmate, worst possible move
+                return Number.MIN_SAFE_INTEGER + offset; // checkmate, worst possible move
             else
                 return 0; // stalemate, draw
         }
-        const sortedMoves = this.predictAndOrderMoves(validMoves);
 
         const startingHash = this.boardHash;
         let bestMoveForThisPosition: EvalMove = { from: -1, to: -1, data: 0 };
-        for (let i = 0; i < sortedMoves.length; i++) {
+
+        const length = sortedMoves.length;
+        for (let i = 0; i < length; i++) {
             // make the move
             this.updateCastleStatus(sortedMoves[i].move.from, sortedMoves[i].move.to);
             this.forceMakeMove(sortedMoves[i].move.from, { index: sortedMoves[i].move.to, data: sortedMoves[i].move.data }, false);
@@ -944,11 +1031,10 @@ export class Engine {
 
         const startingHash = this.boardHash;
         for (let key in validMoves) {
-            for (let i = 0; i < validMoves[key].length; i++) {
-                const pieceIndex = parseInt(key);
-                if (isNaN(pieceIndex))
-                    continue;
-                    
+            const pieceIndex = parseInt(key);
+            if (isNaN(pieceIndex))
+                continue;
+            for (let i = 0; i < validMoves[key].length; i++) {                    
                 this.updateCastleStatus(pieceIndex, validMoves[key][i].index);
                 this.forceMakeMove(pieceIndex, validMoves[key][i], false);
                 const deltas = this.boardDelta;
@@ -1032,9 +1118,13 @@ export class Engine {
         this.updateCastleStatus(fromIndex, toIndex);
         this.forceMakeMove(fromIndex, { index: toIndex, data: Piece.Queen_W }, true); // auto promote to queen when possible
 
-        //if (this.moveCount == 1)
-        //   this.forceMakeMove(11, { index: 27, data: Piece.Queen_W }, true); // d5
-        //else
-           //this.evalBotMove(6);
+        if (this.moveCount == 1)
+           this.forceMakeMove(11, { index: 27, data: Piece.Queen_W }, true); // d5
+        else if (this.moveCount < 10)
+           this.evalBotMove(6);
+        else if (this.moveCount < 30)
+            this.evalBotMove(6);
+        else
+            this.evalBotMove(7);
     }
 }
