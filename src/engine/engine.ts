@@ -121,7 +121,7 @@ export class Engine {
         this.historicalBoards.push(this.createHistoricalBoard());
         this.allValidMoves = this.getAllValidMoves();
 
-        // initialize the hash table
+        // initialize the hash table (0-63)
         const maxVal: bigInt.BigNumber = bigInt(2).pow(64).minus(1);
         for (let i = 0; i < 64; i++) {
             this.zobristHashTable.push([]);
@@ -130,19 +130,18 @@ export class Engine {
             }
         }
 
-        // castle values
+        // castle values (64)
+        let castleValues: bigint[] = [];
         for (let i = 0; i < 4; i++) {
-            this.zobristHashTable.push([]);
-            for (let j = 0; j < 2; j++) {
-                this.zobristHashTable[i + 64].push(BigInt(bigInt.randBetween(0, maxVal)));
-            }
+            castleValues.push(BigInt(bigInt.randBetween(0, maxVal)));
         }
+        this.zobristHashTable.push(castleValues);
+        
+        // turn (65)
+        this.zobristHashTable.push([BigInt(bigInt.randBetween(0, maxVal))]);
 
-        // turn
-        this.zobristHashTable.push([BigInt(bigInt.randBetween(0, maxVal)), BigInt(bigInt.randBetween(0, maxVal))]);
-
-        // en passant
-        const enPassantSquares: bigint[] = [];
+        // en passant (66)
+        let enPassantSquares: bigint[] = [];
         for (let i = 0; i < 64; i++) {
             enPassantSquares.push(BigInt(bigInt.randBetween(0, maxVal)));
         }
@@ -207,17 +206,22 @@ export class Engine {
         }
 
         // castle values
-        hash = hash ^ this.zobristHashTable[64][(this.castleStatus & CastleStatus.WhiteKing ? 0 : 1)];
-        hash = hash ^ this.zobristHashTable[65][(this.castleStatus & CastleStatus.WhiteQueen ? 0 : 1)];
-        hash = hash ^ this.zobristHashTable[66][(this.castleStatus & CastleStatus.BlackKing ? 0 : 1)];
-        hash = hash ^ this.zobristHashTable[67][(this.castleStatus & CastleStatus.BlackQueen ? 0 : 1)];
+        if ((this.castleStatus & CastleStatus.WhiteKing))
+            hash = hash ^ this.zobristHashTable[64][0];
+        if ((this.castleStatus & CastleStatus.WhiteQueen))
+            hash = hash ^ this.zobristHashTable[64][1];
+        if ((this.castleStatus & CastleStatus.BlackKing))
+            hash = hash ^ this.zobristHashTable[64][2];
+        if ((this.castleStatus & CastleStatus.BlackQueen))
+            hash = hash ^ this.zobristHashTable[64][3];
 
         // turn
-        hash = hash ^ this.zobristHashTable[68][(this.whiteTurn ? 0 : 1)];
+        if (this.whiteTurn)
+            hash = hash ^ this.zobristHashTable[65][0];
 
         // en passant
         if (this.enPassantSquare != -1)
-            hash = hash ^ this.zobristHashTable[69][this.enPassantSquare];
+            hash = hash ^ this.zobristHashTable[66][this.enPassantSquare];
 
         return hash;
     }
@@ -492,14 +496,14 @@ export class Engine {
         if (this.whiteTurn) {
             let traced: number[] = [];
             this.traceValidSquares(60, 1, 0, false, true, false, traced);
-            if (this.castleStatus & CastleStatus.WhiteKing && this.board[63] == Piece.Rook_W && traced.length == 2) {
+            if ((this.castleStatus & CastleStatus.WhiteKing) && this.board[63] == Piece.Rook_W && traced.length == 2) {
                 if (!attackedSquares.includes(60) && !attackedSquares.includes(61) && !attackedSquares.includes(62)) {
                     inArray.push({ from: 60, to: 62, data: 0, score: 0 });
                 }
             }
             traced = [];
             this.traceValidSquares(60, -1, 0, false, true, false, traced);
-            if (this.castleStatus & CastleStatus.WhiteQueen && this.board[56] == Piece.Rook_W && traced.length == 3) {
+            if ((this.castleStatus & CastleStatus.WhiteQueen) && this.board[56] == Piece.Rook_W && traced.length == 3) {
                 if (!attackedSquares.includes(60) && !attackedSquares.includes(59) && !attackedSquares.includes(58)) {
                     inArray.push({ from: 60, to: 58, data: 0, score: 0 });
                 }
@@ -507,14 +511,14 @@ export class Engine {
         } else {
             let traced: number[] = [];
             this.traceValidSquares(4, 1, 0, false, true, false, traced);
-            if (this.castleStatus & CastleStatus.BlackKing && this.board[7] == Piece.Rook_B && traced.length == 2) {
+            if ((this.castleStatus & CastleStatus.BlackKing) && this.board[7] == Piece.Rook_B && traced.length == 2) {
                 if (!attackedSquares.includes(4) && !attackedSquares.includes(5) && !attackedSquares.includes(6)) {
                     inArray.push({ from: 4, to: 6, data: 0, score: 0 });
                 }
             }
             traced = [];
             this.traceValidSquares(4, -1, 0, false, true, false, traced);
-            if (this.castleStatus & CastleStatus.BlackQueen && this.board[0] == Piece.Rook_B && traced.length == 3) {
+            if ((this.castleStatus & CastleStatus.BlackQueen) && this.board[0] == Piece.Rook_B && traced.length == 3) {
                 if (!attackedSquares.includes(4) && !attackedSquares.includes(3) && !attackedSquares.includes(2)) {
                     inArray.push({ from: 4, to: 2, data: 0, score: 0 });
                 }
@@ -729,14 +733,14 @@ export class Engine {
         let castled = false;
 
         if (movingPiece == Piece.King_W) {
-            if (this.castleStatus & CastleStatus.WhiteKing && toIndex == 62) {
+            if ((this.castleStatus & CastleStatus.WhiteKing) && toIndex == 62) {
                 this.boardDelta.push({ index: 63, piece: this.board[63], target: 61, castleStatus: this.castleStatus });
                 this.boardDelta.push({ index: 61, piece: this.board[61], target: -1, castleStatus: -1 });
                 this.pieceLocations[Piece.Rook_W].splice(this.pieceLocations[Piece.Rook_W].indexOf(63), 1, 61); // replace with new location
                 this.board[63] = Piece.Empty;
                 this.board[61] = Piece.Rook_W;
                 castled = true;
-            } else if (this.castleStatus & CastleStatus.WhiteQueen && toIndex == 58) {
+            } else if ((this.castleStatus & CastleStatus.WhiteQueen) && toIndex == 58) {
                 this.boardDelta.push({ index: 56, piece: this.board[56], target: 59, castleStatus: this.castleStatus });
                 this.boardDelta.push({ index: 59, piece: this.board[59], target: -1, castleStatus: -1 });
                 this.pieceLocations[Piece.Rook_W].splice(this.pieceLocations[Piece.Rook_W].indexOf(56), 1, 59); // replace with new location
@@ -751,14 +755,14 @@ export class Engine {
             this.castleStatus &= ~CastleStatus.WhiteQueen;
         }
         else if (movingPiece == Piece.King_B) {
-            if (this.castleStatus & CastleStatus.BlackKing && toIndex == 6) {
+            if ((this.castleStatus & CastleStatus.BlackKing) && toIndex == 6) {
                 this.boardDelta.push({ index: 7, piece: this.board[7], target: 5, castleStatus: this.castleStatus });
                 this.boardDelta.push({ index: 5, piece: this.board[5], target: -1, castleStatus: -1 });
                 this.pieceLocations[Piece.Rook_B].splice(this.pieceLocations[Piece.Rook_B].indexOf(7), 1, 5); // replace with new location
                 this.board[7] = Piece.Empty;
                 this.board[5] = Piece.Rook_B;
                 castled = true;
-            } else if (this.castleStatus & CastleStatus.BlackQueen && toIndex == 2) {
+            } else if ((this.castleStatus & CastleStatus.BlackQueen) && toIndex == 2) {
                 this.boardDelta.push({ index: 0, piece: this.board[0], target: 3, castleStatus: this.castleStatus });
                 this.boardDelta.push({ index: 3, piece: this.board[3], target: -1, castleStatus: -1 });
                 this.pieceLocations[Piece.Rook_B].splice(this.pieceLocations[Piece.Rook_B].indexOf(0), 1, 3); // replace with new location
@@ -810,33 +814,29 @@ export class Engine {
 
         // castling
         if ((oldCastleStatus & CastleStatus.WhiteKing) != (this.castleStatus & CastleStatus.WhiteKing)) {
-            hash = hash ^ this.zobristHashTable[64][0];
-            hash = hash ^ this.zobristHashTable[64][1];
+            hash = hash ^ this.zobristHashTable[64][0]; // flip
         }
         if ((oldCastleStatus & CastleStatus.WhiteQueen) != (this.castleStatus & CastleStatus.WhiteQueen)) {
-            hash = hash ^ this.zobristHashTable[65][0];
-            hash = hash ^ this.zobristHashTable[65][1];
+            hash = hash ^ this.zobristHashTable[64][1]; // flip
         }
         if ((oldCastleStatus & CastleStatus.BlackKing) != (this.castleStatus & CastleStatus.BlackKing)) {
-            hash = hash ^ this.zobristHashTable[66][0];
-            hash = hash ^ this.zobristHashTable[66][1];
+            hash = hash ^ this.zobristHashTable[64][2]; // flip
         }
         if ((oldCastleStatus & CastleStatus.BlackQueen) != (this.castleStatus & CastleStatus.BlackQueen)) {
-            hash = hash ^ this.zobristHashTable[67][0];
-            hash = hash ^ this.zobristHashTable[67][1];
+            hash = hash ^ this.zobristHashTable[64][3]; // flip
         }
+
+        // turn
+        newHash = newHash ^ this.zobristHashTable[65][0];
 
         // en passant
         if (oldEnPassant != this.enPassantSquare) {
             if (oldEnPassant != -1)
-                newHash = newHash ^ this.zobristHashTable[69][oldEnPassant];
+                newHash = newHash ^ this.zobristHashTable[66][oldEnPassant];
             if (this.enPassantSquare != -1)
-                newHash = newHash ^ this.zobristHashTable[69][this.enPassantSquare];
+                newHash = newHash ^ this.zobristHashTable[66][this.enPassantSquare];
         }
 
-        // turn
-        newHash = newHash ^ this.zobristHashTable[68][0];
-        newHash = newHash ^ this.zobristHashTable[68][1];
         return newHash;
     }
 
