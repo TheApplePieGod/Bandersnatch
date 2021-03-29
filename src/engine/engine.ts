@@ -15,7 +15,6 @@ interface BoardDelta { // set values to -1 to ignore
     index: number;
     piece: number;
     target: number;
-    castleStatus: number;
 }
 
 interface MoveInfo {
@@ -632,8 +631,8 @@ export class Engine {
         const movingPiece = this.board[fromIndex];
         const capturedPiece = this.board[toIndex];
 
-        this.boardDelta.push({ index: toIndex, piece: capturedPiece, target: -1, castleStatus: -1 });
-        this.boardDelta.push({ index: fromIndex, piece: movingPiece, target: toIndex, castleStatus: -1 });
+        this.boardDelta.push({ index: toIndex, piece: capturedPiece, target: -1 });
+        this.boardDelta.push({ index: fromIndex, piece: movingPiece, target: toIndex });
         this.board[toIndex] = this.board[fromIndex];
         this.board[fromIndex] = Piece.Empty;
 
@@ -644,35 +643,35 @@ export class Engine {
             this.board[toIndex] = move.data;
             this.pieceLocations[Piece.Pawn_W].splice(this.pieceLocations[Piece.Pawn_W].indexOf(fromIndex), 1); // remove pawn entry
             this.pieceLocations[move.data].push(toIndex); // add new piece entry
-            this.boardDelta.push({ index: -1, piece: move.data, target: toIndex, castleStatus: -1 }); // add promotion delta
+            this.boardDelta.push({ index: -1, piece: move.data, target: toIndex }); // add promotion delta
             promoted = true;
         }
         else if (this.board[toIndex] == Piece.Pawn_B && y == 7) {
             this.board[toIndex] = move.data;
             this.pieceLocations[Piece.Pawn_B].splice(this.pieceLocations[Piece.Pawn_B].indexOf(fromIndex), 1); // remove pawn entry
             this.pieceLocations[move.data].push(toIndex); // add new piece entry
-            this.boardDelta.push({ index: -1, piece: move.data, target: toIndex, castleStatus: -1 }); // add promotion delta
+            this.boardDelta.push({ index: -1, piece: move.data, target: toIndex }); // add promotion delta
             promoted = true;
         }
 
         // en passant check
         if (toIndex == this.enPassantSquare) { // capturing en passant, so remove the pawn and add a delta
             if (movingPiece == Piece.Pawn_W) {
-                this.boardDelta.push({ index: toIndex + 8, piece: Piece.Pawn_B, target: -1, castleStatus: -1 });
+                this.boardDelta.push({ index: toIndex + 8, piece: Piece.Pawn_B, target: -1 });
                 this.board[toIndex + 8] = Piece.Empty;
             } else if (movingPiece == Piece.Pawn_B) {
-                this.boardDelta.push({ index: toIndex - 8, piece: Piece.Pawn_W, target: -1, castleStatus: -1 });
+                this.boardDelta.push({ index: toIndex - 8, piece: Piece.Pawn_W, target: -1 });
                 this.board[toIndex - 8] = Piece.Empty;
             }
         }
 
         if (movingPiece == Piece.Pawn_W && fromIndex - toIndex == 16) { // moving two spaces up
             this.enPassantSquare = fromIndex - 8;
-            this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1, castleStatus: -1 });
+            this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1 });
         }
         else if (movingPiece == Piece.Pawn_B && toIndex - fromIndex == 16) { // moving two spaces down
             this.enPassantSquare = fromIndex + 8;
-            this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1, castleStatus: -1 });
+            this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1 });
         }
         else {
             this.enPassantSquare = -1;
@@ -722,9 +721,9 @@ export class Engine {
             if (deltas[i].index != -1)
                 this.board[deltas[i].index] = deltas[i].piece;
 
-            if (deltas[i].castleStatus != -1) {
-                this.castleStatus = deltas[i].castleStatus;
-            }
+            // if (deltas[i].castleStatus != -1) {
+            //     this.castleStatus = deltas[i].castleStatus;
+            // }
         }
     }
 
@@ -734,21 +733,19 @@ export class Engine {
 
         if (movingPiece == Piece.King_W) {
             if ((this.castleStatus & CastleStatus.WhiteKing) && toIndex == 62) {
-                this.boardDelta.push({ index: 63, piece: this.board[63], target: 61, castleStatus: this.castleStatus });
-                this.boardDelta.push({ index: 61, piece: this.board[61], target: -1, castleStatus: -1 });
+                this.boardDelta.push({ index: 63, piece: this.board[63], target: 61 });
+                this.boardDelta.push({ index: 61, piece: this.board[61], target: -1 });
                 this.pieceLocations[Piece.Rook_W].splice(this.pieceLocations[Piece.Rook_W].indexOf(63), 1, 61); // replace with new location
                 this.board[63] = Piece.Empty;
                 this.board[61] = Piece.Rook_W;
                 castled = true;
             } else if ((this.castleStatus & CastleStatus.WhiteQueen) && toIndex == 58) {
-                this.boardDelta.push({ index: 56, piece: this.board[56], target: 59, castleStatus: this.castleStatus });
-                this.boardDelta.push({ index: 59, piece: this.board[59], target: -1, castleStatus: -1 });
+                this.boardDelta.push({ index: 56, piece: this.board[56], target: 59 });
+                this.boardDelta.push({ index: 59, piece: this.board[59], target: -1 });
                 this.pieceLocations[Piece.Rook_W].splice(this.pieceLocations[Piece.Rook_W].indexOf(56), 1, 59); // replace with new location
                 this.board[56] = Piece.Empty;
                 this.board[59] = Piece.Rook_W;
                 castled = true;
-            } else {
-                this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1, castleStatus: this.castleStatus });
             }
 
             this.castleStatus &= ~CastleStatus.WhiteKing;
@@ -756,40 +753,34 @@ export class Engine {
         }
         else if (movingPiece == Piece.King_B) {
             if ((this.castleStatus & CastleStatus.BlackKing) && toIndex == 6) {
-                this.boardDelta.push({ index: 7, piece: this.board[7], target: 5, castleStatus: this.castleStatus });
-                this.boardDelta.push({ index: 5, piece: this.board[5], target: -1, castleStatus: -1 });
+                this.boardDelta.push({ index: 7, piece: this.board[7], target: 5 });
+                this.boardDelta.push({ index: 5, piece: this.board[5], target: -1 });
                 this.pieceLocations[Piece.Rook_B].splice(this.pieceLocations[Piece.Rook_B].indexOf(7), 1, 5); // replace with new location
                 this.board[7] = Piece.Empty;
                 this.board[5] = Piece.Rook_B;
                 castled = true;
             } else if ((this.castleStatus & CastleStatus.BlackQueen) && toIndex == 2) {
-                this.boardDelta.push({ index: 0, piece: this.board[0], target: 3, castleStatus: this.castleStatus });
-                this.boardDelta.push({ index: 3, piece: this.board[3], target: -1, castleStatus: -1 });
+                this.boardDelta.push({ index: 0, piece: this.board[0], target: 3 });
+                this.boardDelta.push({ index: 3, piece: this.board[3], target: -1 });
                 this.pieceLocations[Piece.Rook_B].splice(this.pieceLocations[Piece.Rook_B].indexOf(0), 1, 3); // replace with new location
                 this.board[0] = Piece.Empty;
                 this.board[3] = Piece.Rook_B;
                 castled = true;
-            } else {
-                this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1, castleStatus: this.castleStatus });
             }
 
             this.castleStatus &= ~CastleStatus.BlackKing;
             this.castleStatus &= ~CastleStatus.BlackQueen;
         } // add castling info deltas
         else if (movingPiece == Piece.Rook_W && fromIndex == 56) {
-            this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1, castleStatus: this.castleStatus  });
             this.castleStatus &= ~CastleStatus.WhiteQueen;
         }
         else if (movingPiece == Piece.Rook_W && fromIndex == 63) {
-            this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1, castleStatus: this.castleStatus });
             this.castleStatus &= ~CastleStatus.WhiteKing;
         }
         else if (movingPiece == Piece.Rook_B && fromIndex == 0) {
-            this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1, castleStatus: this.castleStatus });
             this.castleStatus &= ~CastleStatus.BlackQueen;
         }
         else if (movingPiece == Piece.Rook_B && fromIndex == 7) {
-            this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1, castleStatus: this.castleStatus });
             this.castleStatus &= ~CastleStatus.BlackKing;
         }
 
@@ -1054,6 +1045,7 @@ export class Engine {
             this.unmakeMove(deltas);
             this.boardHash = startingHash;
             this.enPassantSquare = oldEnPassant;
+            this.castleStatus = oldCastleStatus;
 
             if (offset == 0) {
                 this.movesFoundThisTurn.push({
@@ -1113,6 +1105,7 @@ export class Engine {
             this.unmakeMove(deltas);
             this.boardHash = startingHash;
             this.enPassantSquare = oldEnPassant;
+            this.castleStatus = oldCastleStatus;
         }
 
         this.savedEvaluations[hashString] = { totalMoves: totalMoves, depth: depth, eval: 0, type: SavedEvalTypes.Exact, bestMove: { from: -1, to: -1, data: 0, score: 0 } };
