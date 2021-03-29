@@ -1,7 +1,7 @@
 import { Button } from '@material-ui/core';
 import bigInt from 'big-integer';
 import React from 'react';
-import { Piece } from "../../definitions";
+import { Piece, getPieceName } from "../../definitions";
 import { Engine } from '../../engine/engine';
 
 interface Props {
@@ -105,8 +105,8 @@ export class Board extends React.Component<Props, State> {
                 const piece = board[boardIndex];
 
                 ctx.fillStyle = (x + y) % 2 == 1 ? '#403e38' : '#ded6c1';
-                //if (this.debug && validMoveIndexes.includes(boardIndex))
-                //    ctx.fillStyle = '#d8f51d';
+                if (this.debug && validMoveIndexes.includes(boardIndex))
+                    ctx.fillStyle = '#d8f51d';
                 ctx.fillRect(xPos, yPos, cellSize, cellSize);
                 
                 if (piece != Piece.Empty) {
@@ -183,34 +183,7 @@ export class Board extends React.Component<Props, State> {
         // this.engine.calculateAllPossibleMoves(4).then((number) => 
         //     console.log(number)
         // );
-        //onsole.log(this.engine.calculateAllPossibleMoves(3));
-        this.engine.findBestMove(3, 0, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
-        console.log(this.engine.evalBestMove);
-    }
-
-    getPieceName = (piece: number) => {
-        switch (piece) {
-            case Piece.Pawn_W:
-            case Piece.Pawn_B:
-                return "Pawn";
-            case Piece.Knight_W:
-            case Piece.Knight_B:
-                return "Knight";
-            case Piece.Bishop_W:
-            case Piece.Bishop_B:
-                return "Bishop";
-            case Piece.Rook_W:
-            case Piece.Rook_B:
-                return "Rook";
-            case Piece.Queen_W:
-            case Piece.Queen_B:
-                return "Queen";
-            case Piece.King_W:
-            case Piece.King_B:
-                return "King";
-            default:
-                return "N/A";
-        }
+        console.log(this.engine.calculateAllPossibleMoves(6));
     }
 
     printPieceLocations = () => {
@@ -225,7 +198,7 @@ export class Board extends React.Component<Props, State> {
                 if (isNaN(pieceIndex))
                     continue;
 
-                let line = `${this.getPieceName(pieceIndex)}: `;
+                let line = `${getPieceName(pieceIndex)}: `;
                 for (let j = 0; j < dictionaries[i][key].length; j++) {
                     line += dictionaries[i][key][j].toString() + ',';
                 }
@@ -237,12 +210,13 @@ export class Board extends React.Component<Props, State> {
     }
 
     botMove = () => {
-        if (this.engine.moveCount < 20)
-           this.engine.evalBotMove(5);
-        else if (this.engine.moveCount < 60)
+        // if (this.engine.moveCount < 20)
+        //    this.engine.evalBotMove(7);
+        // else if (this.engine.moveCount < 60)
+        //     this.engine.evalBotMove(6);
+        // else
             this.engine.evalBotMove(6);
-        else
-            this.engine.evalBotMove(7);
+        //setTimeout(() => this.botMove(), 500);
     }
 
     render = () => (

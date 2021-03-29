@@ -22,6 +22,37 @@ export enum Value {
     Queen = 900
 }
 
+export enum SavedEvalTypes {
+    Exact = 0,
+    Alpha = 1,
+    Beta = 2
+}
+
+export const getPieceName = (piece: number) => {
+    switch (piece) {
+        case Piece.Pawn_W:
+        case Piece.Pawn_B:
+            return "Pawn";
+        case Piece.Knight_W:
+        case Piece.Knight_B:
+            return "Knight";
+        case Piece.Bishop_W:
+        case Piece.Bishop_B:
+            return "Bishop";
+        case Piece.Rook_W:
+        case Piece.Rook_B:
+            return "Rook";
+        case Piece.Queen_W:
+        case Piece.Queen_B:
+            return "Queen";
+        case Piece.King_W:
+        case Piece.King_B:
+            return "King";
+        default:
+            return "";
+    }
+}
+
 // adapted from https://github.com/SebLague/Chess-AI/blob/main/Assets/Scripts/Core/PieceSquareTable.cs
 export const pawnSquareTable: number[] = [
     0,  0,  0,  0,  0,  0,  0,  0,
