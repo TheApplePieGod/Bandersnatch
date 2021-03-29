@@ -16,7 +16,7 @@ export const createApplicationTheme = memoizeOne(() => {
 				main: PALETTE_RED,
 			},
 			secondary: {
-				main: PALETTE_BLACK,
+				main: PALETTE_WHITE,
 			},
 			error: {
 				main: PALETTE_RED,

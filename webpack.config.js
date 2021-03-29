@@ -16,6 +16,11 @@ var config = {
         loader: "awesome-typescript-loader"
       },
       {
+        test: /\.worker\.js$/,
+        include: /src/,
+        loader: "worker-loader"
+      },
+      {
         test: /\.css$/,
         use: ['style-loader', 'css-loader']
       },

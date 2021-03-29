@@ -8,5 +8,10 @@
     "outDir": "./dist",
     "strict": true,
     "esModuleInterop": true,
+    // "lib": [
+    //   "webworker",
+    //   "es6",
+    //   "scripthost"
+    // ]
   }
 }

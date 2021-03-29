@@ -1,5 +1,8 @@
 import bigInt from "big-integer";
-import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, SavedEvalTypes } from "../definitions";
+import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, SavedEvalTypes, EngineCommands } from "../definitions";
+
+// We alias self to ctx and give it our newly created type
+const ctx: Worker = self as any;
 
 interface HistoricalBoard {
     board: number[];
@@ -57,6 +60,9 @@ export class Engine {
     savedValidMoves: Record<string, Record<number, MoveInfo[]>> = {};
     evalBestMove: EvalMove = { from: -1, to: -1, data: 0 };
     movesFoundThisTurn: DebugMoveOutput[] = [];
+
+    pieceCapturedThisTurn = false;
+    castledThisTurn = false;
 
     whitePieceLocations: Record<number, number[]> = {
         [Piece.Pawn_W]: [],
@@ -616,8 +622,8 @@ export class Engine {
                 const isPinned = this.pinnedPieces.includes(location);
                 const validLength = valid.length;
                 for (let j = 0; j < validLength; j++) {
-                    //if (inCheck || isPinned || movingPiece == Piece.King_W || movingPiece == Piece.King_B) { // more optimizations can definitely be made here
-                    if (true) {
+                    if (inCheck || isPinned || movingPiece == Piece.King_W || movingPiece == Piece.King_B) { // more optimizations can definitely be made here
+                    //if (true) {
                         const pieceBackup = this.board[valid[j]];
                         const backup2 = this.board[location];
                         this.board[valid[j]] = movingPiece;
@@ -681,13 +687,13 @@ export class Engine {
         this.savedValidMoves = {};
 
         // debug print found moves
-        for (let i = 0; i < this.movesFoundThisTurn.length; i++) {
-            const move = this.movesFoundThisTurn[i];
-            const data = getPieceName(move.data);
-            const dataString = data != "" ? ` promoting to ${data}` : ""
-            console.log(`Move: ${getPieceName(move.piece)} from ${move.from} to ${move.to}${dataString} with eval ${move.eval}`);
-        }
-        console.log("DONE")
+        // for (let i = 0; i < this.movesFoundThisTurn.length; i++) {
+        //     const move = this.movesFoundThisTurn[i];
+        //     const data = getPieceName(move.data);
+        //     const dataString = data != "" ? ` promoting to ${data}` : ""
+        //     console.log(`Move: ${getPieceName(move.piece)} from ${move.from} to ${move.to}${dataString} with eval ${move.eval}`);
+        // }
+        // console.log("DONE")
         this.movesFoundThisTurn = [];
 
         //console.log(`Finished move ${this.moveCount}`)
@@ -820,7 +826,8 @@ export class Engine {
 
     updateCastleStatus = (fromIndex: number, toIndex: number) => {
         const movingPiece = this.board[fromIndex];
-        
+        let castled = false;
+
         if (movingPiece == Piece.King_W) {
             if (this.whiteCanCastle[0] && toIndex == 62) {
                 this.boardDelta.push({ index: 63, piece: this.board[63], target: 61, canCastle: [...this.whiteCanCastle] });
@@ -828,12 +835,14 @@ export class Engine {
                 this.whitePieceLocations[Piece.Rook_W].splice(this.whitePieceLocations[Piece.Rook_W].indexOf(63), 1, 61); // replace with new location
                 this.board[63] = Piece.Empty;
                 this.board[61] = Piece.Rook_W;
+                castled = true;
             } else if (this.whiteCanCastle[1] && toIndex == 58) {
                 this.boardDelta.push({ index: 56, piece: this.board[56], target: 59, canCastle: [...this.whiteCanCastle] });
                 this.boardDelta.push({ index: 59, piece: this.board[59], target: -1, canCastle: [...this.whiteCanCastle] });
                 this.whitePieceLocations[Piece.Rook_W].splice(this.whitePieceLocations[Piece.Rook_W].indexOf(56), 1, 59); // replace with new location
                 this.board[56] = Piece.Empty;
                 this.board[59] = Piece.Rook_W;
+                castled = true;
             } else {
                 this.boardDelta.push({ index: fromIndex, piece: Piece.King_W, target: toIndex, canCastle: [...this.whiteCanCastle] });
             }
@@ -848,12 +857,14 @@ export class Engine {
                 this.blackPieceLocations[Piece.Rook_B].splice(this.blackPieceLocations[Piece.Rook_B].indexOf(7), 1, 5); // replace with new location
                 this.board[7] = Piece.Empty;
                 this.board[5] = Piece.Rook_B;
+                castled = true;
             } else if (this.blackCanCastle[1] && toIndex == 2) {
                 this.boardDelta.push({ index: 0, piece: this.board[0], target: 3, canCastle: [...this.blackCanCastle] });
                 this.boardDelta.push({ index: 3, piece: this.board[3], target: -1, canCastle: [...this.blackCanCastle] });
                 this.blackPieceLocations[Piece.Rook_B].splice(this.blackPieceLocations[Piece.Rook_B].indexOf(0), 1, 3); // replace with new location
                 this.board[0] = Piece.Empty;
                 this.board[3] = Piece.Rook_B;
+                castled = true;
             } else {
                 this.boardDelta.push({ index: fromIndex, piece: Piece.King_B, target: toIndex, canCastle: [...this.blackCanCastle] });
             }
@@ -877,14 +888,23 @@ export class Engine {
             this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1, canCastle: [...this.blackCanCastle] });
             this.blackCanCastle[0] = false; // kingside
         }
+
+        return castled;
     }    
 
-    countTotalMoves = (moveList: Record<number, number[]>) => {
-        let count = 0;
+    unwrapMoves = (moveList: Record<number, MoveInfo[]>) => {
+        let moves: Record<number, number[]> = {};
         for (let key in moveList) {
-            count += moveList[key].length;
+            const movingPiece = parseInt(key);
+            if (isNaN(movingPiece) || movingPiece == Piece.Empty)
+                continue;
+
+            moves[key] = [];
+            for (let i = 0; i < moveList[key].length; i++) {
+                moves[key].push(moveList[key][i].index);
+            }
         }
-        return count;
+        return moves;
     }
 
     updateHash = (delta: BoardDelta[], hash: bigint, oldEnPassant: number, oldBlackCanCastle: boolean[], oldWhiteCanCastle: boolean[]) => {
@@ -1278,8 +1298,8 @@ export class Engine {
         else if (this.board[this.evalBestMove.from] == Piece.King_B)
             this.blackKingIndex = this.evalBestMove.to;
 
-        //console.log(this.evalBestMove.from, this.evalBestMove.to);
-        this.updateCastleStatus(this.evalBestMove.from, this.evalBestMove.to);
+        this.castledThisTurn = this.updateCastleStatus(this.evalBestMove.from, this.evalBestMove.to);
+        this.pieceCapturedThisTurn = this.board[this.evalBestMove.to] != Piece.Empty;
         this.forceMakeMove(this.evalBestMove.from, { index: this.evalBestMove.to, data: this.evalBestMove.data }, true);
     }
 
@@ -1288,23 +1308,81 @@ export class Engine {
 
         // do not allow moves when looking back
         if (this.historicalIndex != 0)
-            return;
+            return false;
 
         // no-op moves
         if (fromIndex == toIndex || movingPiece == Piece.Empty)
-            return;
+            return false;
 
         // only move correct color pieces on correct turn
         if ((this.whiteTurn && movingPiece < Piece.King_W) || (!this.whiteTurn && movingPiece > Piece.Pawn_B))
-            return;
+            return false;
 
         const validMoves = this.getAllValidMoves(false);
         if (!(fromIndex in validMoves))
-            return;
+            return false;
         if (!validMoves[fromIndex].some(e => e.index == toIndex))
-            return;
+            return false;
 
-        this.updateCastleStatus(fromIndex, toIndex);
+        this.castledThisTurn = this.updateCastleStatus(fromIndex, toIndex);
+        this.pieceCapturedThisTurn = this.board[toIndex] != Piece.Empty;
         this.forceMakeMove(fromIndex, { index: toIndex, data: this.whiteTurn ? Piece.Queen_W : Piece.Queen_B }, true); // auto promote to queen when possible
+        return true;
     }
 }
+
+const engine = new Engine();
+
+ctx.addEventListener("message", (e) => {
+    switch (e.data.command) {
+        case EngineCommands.RetrieveBoard:
+            ctx.postMessage({
+                command: e.data.command,
+                board: engine.board,
+                validMoves: engine.unwrapMoves(engine.allValidMoves)
+            });
+            break;
+        case EngineCommands.AttemptMove:
+        {
+            const result = engine.attemptMove(e.data.fromIndex, e.data.toIndex);
+            const inCheck = result ? engine.isInCheck(engine.whiteTurn) : false;
+            ctx.postMessage({
+                command: e.data.command,
+                from: e.data.fromIndex,
+                to: e.data.toIndex,
+                board: result ? engine.board : [],
+                validMoves: engine.unwrapMoves(engine.allValidMoves),
+                inCheck: inCheck,
+                captured: engine.pieceCapturedThisTurn,
+                castled: engine.castledThisTurn
+            });
+            break;
+        }
+        case EngineCommands.HistoryGoBack:
+            engine.stepBack();
+            ctx.postMessage({ command: e.data.command, board: engine.board });
+            break;
+        case EngineCommands.HistoryGoForward:
+            engine.stepForward();
+            ctx.postMessage({ command: e.data.command, board: engine.board });
+            break;
+        case EngineCommands.BotBestMove:
+        {
+            engine.evalBotMove(6);
+            const inCheck = engine.isInCheck(engine.whiteTurn);
+            ctx.postMessage({
+                command: e.data.command,
+                from: engine.evalBestMove.from,
+                to: engine.evalBestMove.to,
+                board: engine.board,
+                validMoves: engine.unwrapMoves(engine.allValidMoves),
+                inCheck: inCheck,
+                captured: engine.pieceCapturedThisTurn,
+                castled: engine.castledThisTurn
+            });
+            break;
+        }
+        default:
+            break;
+    }
+});

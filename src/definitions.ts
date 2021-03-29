@@ -28,6 +28,24 @@ export enum SavedEvalTypes {
     Beta = 2
 }
 
+export enum EngineCommands {
+    None = 0,
+    RetrieveBoard = 1,
+    AttemptMove = 2,
+    HistoryGoBack = 3,
+    HistoryGoForward = 4,
+    BotBestMove = 5,
+}
+
+export enum Sounds {
+    None = 0,
+    PieceMoved = 1,
+    PieceCaptured = 2,
+    Checked = 3,
+    Castled = 4,
+    IllegalMove = 5,
+}
+
 export const getPieceName = (piece: number) => {
     switch (piece) {
         case Piece.Pawn_W:

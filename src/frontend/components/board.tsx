@@ -1,32 +1,144 @@
-import { Button } from '@material-ui/core';
+import { Button, FormControlLabel, Checkbox, Typography } from '@material-ui/core';
 import bigInt from 'big-integer';
 import React from 'react';
-import { Piece, getPieceName } from "../../definitions";
-import { Engine } from '../../engine/engine';
+import { Piece, getPieceName, EngineCommands, Sounds } from "../../definitions";
+import EngineWorker from "worker-loader!../../engine/engine";
 
 interface Props {
 
 }
 
 interface State {
-    
+    width: number;
+    height: number;
+    cellSize: number;
+    showNumbers: boolean;
+    showValidMoves: boolean;
 }
 
 export class Board extends React.Component<Props, State> {
     canvasRef: React.RefObject<HTMLCanvasElement>;
     images: Record<number, HTMLImageElement>;
-    engine: Engine;
-    cellSize = 150;
+    engineWorker = new EngineWorker();
+    localBoard: number[];
+    localValidMoves: Record<number, number[]> = {};
+    lastMoveFrom = -1;
+    lastMoveTo = -1;
     animationFrameId = 0;
     draggingIndex = -1;
     relativeMousePos = { x: 0, y: 0 };
-    debug = false;
+    boardScaleFactor = 0.9;
+    boardSize = 8;
+    waitingForMove = false;
 
     constructor(props: Props) {
         super(props);
         this.canvasRef = React.createRef<HTMLCanvasElement>();
-        this.engine = new Engine();
+        this.localBoard = new Array(64);
         this.images = {};
+        this.state = {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            cellSize: Math.floor(Math.min(window.innerWidth * this.boardScaleFactor, window.innerHeight * this.boardScaleFactor) / 8),
+            showNumbers: false,
+            showValidMoves: false,
+        };
+
+        this.engineWorker.onmessage = this.handleMessage;
+    }
+
+    playSound = (sound: number) => {
+        switch (sound) {
+            case Sounds.PieceMoved:
+            {
+                const audio = new Audio("sounds/move.wav");
+                audio.play();
+                break;
+            }
+            case Sounds.PieceCaptured:
+            {
+                const audio = new Audio("sounds/capture.wav");
+                audio.play();
+                break;
+            }
+            case Sounds.Checked:
+            {
+                const audio = new Audio("sounds/check.wav");
+                audio.play();
+                break;
+            }
+            case Sounds.Castled:
+             {
+                const audio = new Audio("sounds/castle.wav");
+                audio.play();
+                break;
+            }
+            case Sounds.IllegalMove:
+             {
+                const audio = new Audio("sounds/illegal.wav");
+                audio.play();
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    handleMessage = (e: MessageEvent) => {
+        switch (e.data.command) {
+            case EngineCommands.RetrieveBoard:
+                this.localBoard = e.data.board;
+                this.localValidMoves = e.data.validMoves;
+                break;
+            case EngineCommands.AttemptMove:
+                if (e.data.board.length > 0) {
+                    this.localBoard = e.data.board;
+                    this.localValidMoves = e.data.validMoves;
+                    this.lastMoveFrom = e.data.from;
+                    this.lastMoveTo = e.data.to;
+                    if (e.data.inCheck)
+                        this.playSound(Sounds.Checked);
+                    else {
+                        if (e.data.captured)
+                            this.playSound(Sounds.PieceCaptured);
+                        else if (e.data.castled)
+                            this.playSound(Sounds.Castled);
+                        else
+                            this.playSound(Sounds.PieceMoved);
+                    }
+                } else {
+                    this.playSound(Sounds.IllegalMove);
+                }
+                this.draggingIndex = -1;
+
+                break;
+            case EngineCommands.HistoryGoBack:
+                this.localBoard = e.data.board;
+                break;
+            case EngineCommands.HistoryGoForward:
+                this.localBoard = e.data.board;
+                break;
+            case EngineCommands.BotBestMove:
+                this.localBoard = e.data.board;
+                this.localValidMoves = e.data.validMoves;
+                this.lastMoveFrom = e.data.from;
+                this.lastMoveTo = e.data.to;
+                this.waitingForMove = false;
+                if (e.data.inCheck)
+                    this.playSound(Sounds.Checked);
+                else {
+                    if (e.data.captured)
+                        this.playSound(Sounds.PieceCaptured);
+                    else if (e.data.castled)
+                        this.playSound(Sounds.Castled);
+                    else
+                        this.playSound(Sounds.PieceMoved);
+                }
+
+                break;
+            default:
+                break;
+        }
     }
 
     init = () => {
@@ -50,6 +162,8 @@ export class Board extends React.Component<Props, State> {
             img.src = imagePaths[key];
             this.images[key] = img;
         }
+
+        setTimeout(() => this.engineWorker.postMessage({ command: EngineCommands.RetrieveBoard }), 200);
     }
 
     startRendering = () => {
@@ -79,44 +193,49 @@ export class Board extends React.Component<Props, State> {
         this.init();
         this.startRendering();
         window.addEventListener("keydown", this.onKeyDown);
+        window.addEventListener("resize", this.handleResize);
     }
 
     componentWillUnmount = () => {
         window.cancelAnimationFrame(this.animationFrameId);
         window.removeEventListener("keydown", this.onKeyDown);
+        window.removeEventListener("resize", this.handleResize);
     }
 
     drawBoard = (ctx: CanvasRenderingContext2D) => {
-        const { boardSize, board } = this.engine;
-        const { cellSize, images, relativeMousePos } = this;
-
-        let validMoveIndexes: number[] = [];
-        for (let key in this.engine.allValidMoves) {
-            for (let i = 0; i < this.engine.allValidMoves[key].length; i++) {
-                validMoveIndexes.push(this.engine.allValidMoves[key][i].index);
-            }
-        }
+        const { boardSize, localBoard, images, relativeMousePos } = this;
+        const { cellSize } = this.state;
 
         let xPos = 0;
         let yPos = 0;
         for (let y = 0; y < boardSize; y++) {
             for (let x = 0; x < boardSize; x++) {
                 const boardIndex = (y * boardSize) + x;
-                const piece = board[boardIndex];
+                const piece = localBoard[boardIndex];
 
                 ctx.fillStyle = (x + y) % 2 == 1 ? '#403e38' : '#ded6c1';
-                if (this.debug && validMoveIndexes.includes(boardIndex))
-                    ctx.fillStyle = '#d8f51d';
                 ctx.fillRect(xPos, yPos, cellSize, cellSize);
+
+                if (boardIndex == this.lastMoveFrom || boardIndex == this.lastMoveTo) {
+                    ctx.fillStyle = '#f57b4270';
+                    ctx.fillRect(xPos, yPos, cellSize, cellSize);
+                }
+
+                if (this.state.showValidMoves) {
+                    if (this.draggingIndex in this.localValidMoves && this.localValidMoves[this.draggingIndex].includes(boardIndex)) {
+                        ctx.fillStyle = '#d8f51d70';
+                        ctx.fillRect(xPos, yPos, cellSize, cellSize);
+                    }
+                }
                 
                 if (piece != Piece.Empty) {
                     if (piece in images && images[piece].complete)
                         if (boardIndex != this.draggingIndex)
                             ctx.drawImage(images[piece], xPos, yPos, cellSize, cellSize);
                 }
-                if (this.debug) {
+                if (this.state.showNumbers) {
                     ctx.fillStyle = '#ff000d';
-                    ctx.font = `${this.cellSize * 0.25}px arial`;
+                    ctx.font = `${this.state.cellSize * 0.25}px arial`;
                     ctx.fillText(boardIndex.toString(), xPos, yPos + cellSize);
                 }
                 xPos += cellSize;
@@ -128,15 +247,10 @@ export class Board extends React.Component<Props, State> {
         // debug texts
         xPos = 0;
         ctx.fillStyle = '#ff000d';
-        ctx.font = `${this.cellSize * 0.5}px arial`;
-        ctx.fillText(`White king index: ${this.engine.whiteKingIndex}`, xPos, yPos + cellSize);
-        yPos += cellSize;
-        ctx.fillText(`Black king index: ${this.engine.blackKingIndex}`, xPos, yPos + cellSize);
-        yPos += cellSize;
-        ctx.fillText(`Castle (W, B): ${this.engine.whiteCanCastle} / ${this.engine.blackCanCastle}`, xPos, yPos + cellSize);
+        ctx.font = `${this.state.cellSize * 0.5}px arial`;
 
-        if (this.draggingIndex >= 0 && this.draggingIndex < board.length) {
-            const piece = board[this.draggingIndex];
+        if (this.draggingIndex >= 0 && this.draggingIndex < localBoard.length) {
+            const piece = localBoard[this.draggingIndex];
             if (piece != Piece.Empty)
                 ctx.drawImage(images[piece], relativeMousePos.x - (cellSize * 0.5), relativeMousePos.y - (cellSize * 0.5), cellSize, cellSize);
         }
@@ -148,9 +262,9 @@ export class Board extends React.Component<Props, State> {
 
     getMouseBoardIndex = () => {
         const { relativeMousePos } = this;
-        const x = Math.floor(relativeMousePos.x / this.cellSize);
-        const y = Math.floor(relativeMousePos.y / this.cellSize);
-        const finalIndex = x + (y * this.engine.boardSize);
+        const x = Math.floor(relativeMousePos.x / this.state.cellSize);
+        const y = Math.floor(relativeMousePos.y / this.state.cellSize);
+        const finalIndex = x + (y * this.boardSize);
         return finalIndex;
     }
 
@@ -163,75 +277,93 @@ export class Board extends React.Component<Props, State> {
         this.relativeMousePos.y = Math.round(e.clientY - cRect.top);
     }
 
+    handleResize = () => {
+        const { innerWidth: width, innerHeight: height } = window;
+        this.setState({
+            width: width,
+            height: height,
+            cellSize: Math.floor(Math.min(width * this.boardScaleFactor, height * this.boardScaleFactor) / 8)
+        });
+    }
+
     onMouseDown = () => {
-        this.draggingIndex = this.getMouseBoardIndex();
+        const index = this.getMouseBoardIndex();
+        if (this.localBoard[index] != Piece.Empty)
+            this.draggingIndex = index; 
     }
 
     onMouseUp = () => {
-        this.engine.attemptMove(this.draggingIndex, this.getMouseBoardIndex());
-        this.draggingIndex = -1;
+        if (this.draggingIndex != -1) {
+            if (!this.waitingForMove) {
+                this.engineWorker.postMessage({ command: EngineCommands.AttemptMove, fromIndex: this.draggingIndex, toIndex: this.getMouseBoardIndex() });
+            } else {
+                this.draggingIndex = -1;
+                this.playSound(Sounds.IllegalMove);
+            }
+        } 
     }
 
     onKeyDown = (e: KeyboardEvent) => {
         if (e.key == "ArrowLeft")
-            this.engine.stepBack();
+            this.engineWorker.postMessage({ command: EngineCommands.HistoryGoBack });
         else if (e.key == "ArrowRight")
-            this.engine.stepForward();
+            this.engineWorker.postMessage({ command: EngineCommands.HistoryGoForward });
     }
 
     getAllMoves = () => {
-        // this.engine.calculateAllPossibleMoves(4).then((number) => 
-        //     console.log(number)
-        // );
-        console.log(this.engine.calculateAllPossibleMoves(6));
+        //console.log(this.engine.calculateAllPossibleMoves(6));
     }
 
     printPieceLocations = () => {
         let finalString = "White:\n";
-        const dictionaries = [this.engine.whitePieceLocations, this.engine.blackPieceLocations];
+        // const dictionaries = [this.engine.whitePieceLocations, this.engine.blackPieceLocations];
 
-        for (let i = 0; i < dictionaries.length; i++) {
-            if (i == 1)
-                finalString += "\nBlack:\n";
-            for (let key in dictionaries[i]) {
-                const pieceIndex = parseInt(key);
-                if (isNaN(pieceIndex))
-                    continue;
+        // for (let i = 0; i < dictionaries.length; i++) {
+        //     if (i == 1)
+        //         finalString += "\nBlack:\n";
+        //     for (let key in dictionaries[i]) {
+        //         const pieceIndex = parseInt(key);
+        //         if (isNaN(pieceIndex))
+        //             continue;
 
-                let line = `${getPieceName(pieceIndex)}: `;
-                for (let j = 0; j < dictionaries[i][key].length; j++) {
-                    line += dictionaries[i][key][j].toString() + ',';
-                }
+        //         let line = `${getPieceName(pieceIndex)}: `;
+        //         for (let j = 0; j < dictionaries[i][key].length; j++) {
+        //             line += dictionaries[i][key][j].toString() + ',';
+        //         }
 
-                finalString += line + '\n';
-            }
-        }
-        console.log(finalString);
+        //         finalString += line + '\n';
+        //     }
+        // }
+        // console.log(finalString);
     }
 
     botMove = () => {
-        // if (this.engine.moveCount < 20)
-        //    this.engine.evalBotMove(7);
-        // else if (this.engine.moveCount < 60)
-        //     this.engine.evalBotMove(6);
-        // else
-            this.engine.evalBotMove(6);
-        //setTimeout(() => this.botMove(), 500);
+        if (!this.waitingForMove) {
+            this.waitingForMove = true;
+            this.engineWorker.postMessage({ command: EngineCommands.BotBestMove });
+        }
     }
 
     render = () => (
-        <div>
-            <Button onClick={this.botMove}>Bot Move</Button>
-            <Button onClick={() => this.debug = !this.debug}>Toggle debug</Button>
-            <Button onClick={this.getAllMoves}>Calc moves</Button>
-            <Button onClick={this.printPieceLocations}>Print piece locations</Button>
+        <div style={{ display: "flex" }}>
+            <div style={{ display: "flex", flexDirection: "column", marginRight: "20px" }}>
+                <FormControlLabel
+                    control={<Checkbox checked={this.state.showNumbers} onChange={() => this.setState({ showNumbers: !this.state.showNumbers })} name="asd" />}
+                    label={<Typography color="textPrimary">Show Grid Numbers</Typography>}
+                />
+                <FormControlLabel
+                    control={<Checkbox checked={this.state.showValidMoves} onChange={() => this.setState({ showValidMoves: !this.state.showValidMoves })} />}
+                    label={<Typography color="textPrimary">Show Legal Moves</Typography>}
+                />
+                <Button variant="contained" onClick={this.botMove}>Make a bot move</Button>
+            </div>
             <canvas
                 ref={this.canvasRef}
                 onMouseMove={this.onMouseMove}
                 onMouseDown={this.onMouseDown}
                 onMouseUp={this.onMouseUp}
-                width={this.cellSize * 8}
-                height={this.cellSize * 10}
+                width={Math.min(this.state.width * this.boardScaleFactor, this.state.height * this.boardScaleFactor)}
+                height={Math.min(this.state.width * this.boardScaleFactor, this.state.height * this.boardScaleFactor)}
             />
         </div>
     );
