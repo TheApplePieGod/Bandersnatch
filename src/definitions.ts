@@ -22,10 +22,11 @@ export enum Value {
     Queen = 900
 }
 
-export enum SavedEvalTypes {
-    Exact = 0,
-    Alpha = 1,
-    Beta = 2
+export interface EvalMove {
+    from: number;
+    to: number;
+    data: number;
+    score: number;
 }
 
 export enum EngineCommands {

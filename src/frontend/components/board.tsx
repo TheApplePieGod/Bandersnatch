@@ -1,7 +1,7 @@
 import { Button, FormControlLabel, Checkbox, Typography } from '@material-ui/core';
 import bigInt from 'big-integer';
 import React from 'react';
-import { Piece, getPieceName, EngineCommands, Sounds } from "../../definitions";
+import { Piece, getPieceName, EngineCommands, Sounds, EvalMove } from "../../definitions";
 import EngineWorker from "worker-loader!../../engine/engine";
 
 interface Props {
@@ -24,7 +24,7 @@ export class Board extends React.Component<Props, State> {
     images: Record<number, HTMLImageElement>;
     engineWorker = new EngineWorker();
     localBoard: number[];
-    localValidMoves: Record<number, number[]> = {};
+    localValidMoves: EvalMove[] = [];
     lastMoveFrom = -1;
     lastMoveTo = -1;
     lastTimeTaken = 0;
@@ -282,7 +282,7 @@ export class Board extends React.Component<Props, State> {
                 }
 
                 if (this.state.showValidMoves) {
-                    if (this.draggingIndex in this.localValidMoves && this.localValidMoves[this.draggingIndex].includes(boardIndex)) {
+                    if (this.localValidMoves.some(e => e.from == this.draggingIndex && e.to == boardIndex)) {
                         ctx.fillStyle = '#d8f51d70';
                         ctx.fillRect(xPos, yPos, cellSize, cellSize);
                     }
