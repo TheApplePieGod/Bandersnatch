@@ -14,6 +14,9 @@ interface State {
     cellSize: number;
     showNumbers: boolean;
     showValidMoves: boolean;
+    waitingForMove: boolean;
+    botMoveAutoplay: boolean;
+    playAgainstBot: boolean;
 }
 
 export class Board extends React.Component<Props, State> {
@@ -24,13 +27,12 @@ export class Board extends React.Component<Props, State> {
     localValidMoves: Record<number, number[]> = {};
     lastMoveFrom = -1;
     lastMoveTo = -1;
+    lastTimeTaken = 0;
     animationFrameId = 0;
     draggingIndex = -1;
     relativeMousePos = { x: 0, y: 0 };
     boardScaleFactor = 0.9;
     boardSize = 8;
-    waitingForMove = false;
-
     constructor(props: Props) {
         super(props);
         this.canvasRef = React.createRef<HTMLCanvasElement>();
@@ -42,6 +44,9 @@ export class Board extends React.Component<Props, State> {
             cellSize: Math.floor(Math.min(window.innerWidth * this.boardScaleFactor, window.innerHeight * this.boardScaleFactor) / 8),
             showNumbers: false,
             showValidMoves: false,
+            waitingForMove: false,
+            botMoveAutoplay: false,
+            playAgainstBot: false
         };
 
         this.engineWorker.onmessage = this.handleMessage;
@@ -55,6 +60,12 @@ export class Board extends React.Component<Props, State> {
                 audio.play();
                 break;
             }
+            case Sounds.PieceMoved2:
+            {
+                const audio = new Audio("sounds/move2.wav");
+                audio.play();
+                break;
+            }
             case Sounds.PieceCaptured:
             {
                 const audio = new Audio("sounds/capture.wav");
@@ -64,6 +75,12 @@ export class Board extends React.Component<Props, State> {
             case Sounds.Checked:
             {
                 const audio = new Audio("sounds/check.wav");
+                audio.play();
+                break;
+            }
+            case Sounds.GameOver:
+            {
+                const audio = new Audio("sounds/game-end.wav");
                 audio.play();
                 break;
             }
@@ -96,7 +113,16 @@ export class Board extends React.Component<Props, State> {
                     this.localValidMoves = e.data.validMoves;
                     this.lastMoveFrom = e.data.from;
                     this.lastMoveTo = e.data.to;
-                    if (e.data.inCheck)
+
+                    const checkmate = Object.keys(this.localValidMoves).length == 0;
+
+                    if (!checkmate && this.state.playAgainstBot)
+                        this.botMove();
+
+                    if (checkmate) {
+                        this.playSound(Sounds.GameOver);
+                    }
+                    else if (e.data.inCheck)
                         this.playSound(Sounds.Checked);
                     else {
                         if (e.data.captured)
@@ -119,20 +145,41 @@ export class Board extends React.Component<Props, State> {
                 this.localBoard = e.data.board;
                 break;
             case EngineCommands.BotBestMove:
-                this.localBoard = e.data.board;
-                this.localValidMoves = e.data.validMoves;
-                this.lastMoveFrom = e.data.from;
-                this.lastMoveTo = e.data.to;
-                this.waitingForMove = false;
-                if (e.data.inCheck)
-                    this.playSound(Sounds.Checked);
-                else {
-                    if (e.data.captured)
-                        this.playSound(Sounds.PieceCaptured);
-                    else if (e.data.castled)
-                        this.playSound(Sounds.Castled);
-                    else
-                        this.playSound(Sounds.PieceMoved);
+                const updateData = () => {
+                    this.localBoard = e.data.board;
+                    this.localValidMoves = e.data.validMoves;
+                    this.lastMoveFrom = e.data.from;
+                    this.lastMoveTo = e.data.to;
+                    this.lastTimeTaken = e.data.timeTaken;
+    
+                    const checkmate = Object.keys(this.localValidMoves).length == 0;
+    
+                    if (!checkmate && this.state.botMoveAutoplay) {
+                        this.engineWorker.postMessage({ command: EngineCommands.BotBestMove });
+                    } else {
+                        this.setState({ waitingForMove: false });
+                    }
+                    
+                    if (checkmate) {
+                        this.playSound(Sounds.GameOver);
+                    }
+                    else if (e.data.inCheck)
+                        this.playSound(Sounds.Checked);
+                    else {
+                        if (e.data.captured)
+                            this.playSound(Sounds.PieceCaptured);
+                        else if (e.data.castled)
+                            this.playSound(Sounds.Castled);
+                        else
+                            this.playSound(Sounds.PieceMoved);
+                    }
+                }
+
+                //console.log(e.data.timeTaken);
+                if (e.data.timeTaken < 1000) { // artifically add a delay if the move was made too quickly
+                    setTimeout(updateData, 1000 - e.data.timeTaken);
+                } else {
+                    updateData();
                 }
 
                 break;
@@ -294,7 +341,7 @@ export class Board extends React.Component<Props, State> {
 
     onMouseUp = () => {
         if (this.draggingIndex != -1) {
-            if (!this.waitingForMove) {
+            if (!this.state.waitingForMove) {
                 this.engineWorker.postMessage({ command: EngineCommands.AttemptMove, fromIndex: this.draggingIndex, toIndex: this.getMouseBoardIndex() });
             } else {
                 this.draggingIndex = -1;
@@ -338,8 +385,8 @@ export class Board extends React.Component<Props, State> {
     }
 
     botMove = () => {
-        if (!this.waitingForMove) {
-            this.waitingForMove = true;
+        if (!this.state.waitingForMove) {
+            this.setState({ waitingForMove: true });
             this.engineWorker.postMessage({ command: EngineCommands.BotBestMove });
         }
     }
@@ -355,7 +402,15 @@ export class Board extends React.Component<Props, State> {
                     control={<Checkbox checked={this.state.showValidMoves} onChange={() => this.setState({ showValidMoves: !this.state.showValidMoves })} />}
                     label={<Typography color="textPrimary">Show Legal Moves</Typography>}
                 />
-                <Button variant="contained" onClick={this.botMove}>Make a bot move</Button>
+                <FormControlLabel
+                    control={<Checkbox checked={this.state.botMoveAutoplay} onChange={() => this.setState({ botMoveAutoplay: !this.state.botMoveAutoplay })} />}
+                    label={<Typography color="textPrimary">Bot Autoplay</Typography>}
+                />
+                <FormControlLabel
+                    control={<Checkbox checked={this.state.playAgainstBot} onChange={() => this.setState({ playAgainstBot: !this.state.playAgainstBot })} />}
+                    label={<Typography color="textPrimary">Play Against Bot</Typography>}
+                />
+                <Button disabled={this.state.waitingForMove} variant="contained" onClick={this.botMove}>Make a bot move</Button>
             </div>
             <canvas
                 ref={this.canvasRef}

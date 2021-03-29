@@ -53,16 +53,18 @@ export class Engine {
     boardSize = 8;
     board: number[] = [];
     boardDelta: BoardDelta[] = [];
-    boardHash = BigInt(0);
+    boardHash: bigint = BigInt(0);
 
     zobristHashTable: bigint[][] = [];
     savedEvaluations: Record<string, EvaluationData> = {};
     savedValidMoves: Record<string, Record<number, MoveInfo[]>> = {};
     evalBestMove: EvalMove = { from: -1, to: -1, data: 0 };
     movesFoundThisTurn: DebugMoveOutput[] = [];
+    repetitionHistory: bigint[] = [];
 
     pieceCapturedThisTurn = false;
     castledThisTurn = false;
+    timeTakenLastTurn = 0;
 
     whitePieceLocations: Record<number, number[]> = {
         [Piece.Pawn_W]: [],
@@ -116,6 +118,7 @@ export class Engine {
         //startingFEN = "1rk4r/1pp3pp/p2b4/1n3P2/6P1/2nK4/7P/8 b - - 0 1"; // promotion break
         //startingFEN = "r3kb1r/ppp1pppp/2n5/6B1/4P1n1/2N5/PPP2PPP/R2K2NR w - - 0 1"; // fork
         //startingFEN = "rr2kb2/ppp1pppp/2n3n1/7B/B7/2N5/PPP2PPP/R2KR1N1 b - - 0 1"; // pins
+        startingFEN = "2N5/4k2p/p3pp2/6p1/8/P4n1P/4r3/1K1R4 b - - 0 1"; // threefold
         this.board = this.parseFEN(startingFEN);
         for (let i = 0; i < this.board.length; i++) {
             if (this.board[i] == Piece.King_W)
@@ -687,13 +690,13 @@ export class Engine {
         this.savedValidMoves = {};
 
         // debug print found moves
-        // for (let i = 0; i < this.movesFoundThisTurn.length; i++) {
-        //     const move = this.movesFoundThisTurn[i];
-        //     const data = getPieceName(move.data);
-        //     const dataString = data != "" ? ` promoting to ${data}` : ""
-        //     console.log(`Move: ${getPieceName(move.piece)} from ${move.from} to ${move.to}${dataString} with eval ${move.eval}`);
-        // }
-        // console.log("DONE")
+        for (let i = 0; i < this.movesFoundThisTurn.length; i++) {
+            const move = this.movesFoundThisTurn[i];
+            const data = getPieceName(move.data);
+            const dataString = data != "" ? ` promoting to ${data}` : ""
+            console.log(`Move: ${getPieceName(move.piece)} from ${move.from} to ${move.to}${dataString} with eval ${move.eval}`);
+        }
+        console.log("DONE")
         this.movesFoundThisTurn = [];
 
         //console.log(`Finished move ${this.moveCount}`)
@@ -770,12 +773,21 @@ export class Engine {
             }
         }
 
-        if (finishTurn)
+        if (finishTurn) {
+            // update board repetition history
+            if (movingPiece == Piece.Pawn_W || movingPiece == Piece.Pawn_W || capturedPiece != Piece.Empty) { // repetitions not possible with these moves
+                this.repetitionHistory = [];
+            } else {
+                this.repetitionHistory.push(this.hashBoard());
+            }
+
             this.finishTurn();
+        }
     }
 
     unmakeMove = (deltas: BoardDelta[]) => {
         this.whiteTurn = !this.whiteTurn;
+
         for (let i = 0; i < deltas.length; i++) {
             if (deltas[i].piece != Piece.Empty) { // ignore any empty piece entries
                 if (deltas[i].index == -1) { // if the original index is -1, it means the piece was created from promotion, so remove the piece
@@ -1130,6 +1142,10 @@ export class Engine {
             return this.evaluate();
 
         if (offset > 0) {
+            // detect any repetition and assume a draw is coming (return a 0 draw score)
+            //if (this.repetitionHistory.includes(this.boardHash))
+            //    return 0;
+
             // modify the values to skip this position if a mating sequence has already been found and is shorter
             alpha = Math.max(alpha, Number.MIN_SAFE_INTEGER + offset);
             beta = Math.min(beta, Number.MAX_SAFE_INTEGER - offset);
@@ -1176,6 +1192,7 @@ export class Engine {
         const length = sortedMoves.length;
         for (let i = 0; i < length; i++) {
             // make the move
+            const capture = this.board[sortedMoves[i].move.to];
             this.updateCastleStatus(sortedMoves[i].move.from, sortedMoves[i].move.to);
             this.forceMakeMove(sortedMoves[i].move.from, { index: sortedMoves[i].move.to, data: sortedMoves[i].move.data }, false);
             const deltas = this.boardDelta;
@@ -1286,6 +1303,8 @@ export class Engine {
         if (this.historicalIndex != 0)
             return;
 
+        const startTime = self.performance.now();
+
         const lastMove = {...this.evalBestMove};
         this.findBestMove(depth, 0, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
         if (lastMove.to == this.evalBestMove.to && lastMove.from == this.evalBestMove.from) {
@@ -1301,6 +1320,9 @@ export class Engine {
         this.castledThisTurn = this.updateCastleStatus(this.evalBestMove.from, this.evalBestMove.to);
         this.pieceCapturedThisTurn = this.board[this.evalBestMove.to] != Piece.Empty;
         this.forceMakeMove(this.evalBestMove.from, { index: this.evalBestMove.to, data: this.evalBestMove.data }, true);
+
+        const endTime = self.performance.now();
+        this.timeTakenLastTurn = endTime - startTime; // ms
     }
 
     attemptMove = (fromIndex: number, toIndex: number) => {
@@ -1374,6 +1396,7 @@ ctx.addEventListener("message", (e) => {
                 command: e.data.command,
                 from: engine.evalBestMove.from,
                 to: engine.evalBestMove.to,
+                timeTaken: engine.timeTakenLastTurn,
                 board: engine.board,
                 validMoves: engine.unwrapMoves(engine.allValidMoves),
                 inCheck: inCheck,

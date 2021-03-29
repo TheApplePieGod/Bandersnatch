@@ -44,6 +44,8 @@ export enum Sounds {
     Checked = 3,
     Castled = 4,
     IllegalMove = 5,
+    GameOver = 6,
+    PieceMoved2 = 7
 }
 
 export const getPieceName = (piece: number) => {

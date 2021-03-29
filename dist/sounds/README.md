@@ -1,0 +1,1 @@
+All sounds used are from [chess.com](https://www.chess.com/), so all credit goes to them
