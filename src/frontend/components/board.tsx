@@ -183,6 +183,19 @@ export class Board extends React.Component<Props, State> {
                 }
 
                 break;
+            case EngineCommands.RetrievePieceLocations:
+                let finalString = "Black:\n";
+
+                for (let i = 1; i < e.data.locations.length; i++) {
+                    if (i == 7)
+                        finalString += "\White:\n";
+                    let line = `${getPieceName(i)}: `;
+                    for (let j = 0; j < e.data.locations[i].length; j++) {
+                        line += e.data.locations[i][j].toString() + ',';
+                    }
+                    finalString += line + '\n';
+                }
+                console.log(finalString);
             default:
                 break;
         }
@@ -362,26 +375,7 @@ export class Board extends React.Component<Props, State> {
     }
 
     printPieceLocations = () => {
-        let finalString = "White:\n";
-        // const dictionaries = [this.engine.whitePieceLocations, this.engine.blackPieceLocations];
-
-        // for (let i = 0; i < dictionaries.length; i++) {
-        //     if (i == 1)
-        //         finalString += "\nBlack:\n";
-        //     for (let key in dictionaries[i]) {
-        //         const pieceIndex = parseInt(key);
-        //         if (isNaN(pieceIndex))
-        //             continue;
-
-        //         let line = `${getPieceName(pieceIndex)}: `;
-        //         for (let j = 0; j < dictionaries[i][key].length; j++) {
-        //             line += dictionaries[i][key][j].toString() + ',';
-        //         }
-
-        //         finalString += line + '\n';
-        //     }
-        // }
-        // console.log(finalString);
+        this.engineWorker.postMessage({ command: EngineCommands.RetrievePieceLocations });
     }
 
     botMove = () => {
@@ -411,6 +405,7 @@ export class Board extends React.Component<Props, State> {
                     label={<Typography color="textPrimary">Play Against Bot</Typography>}
                 />
                 <Button disabled={this.state.waitingForMove} variant="contained" onClick={this.botMove}>Make a bot move</Button>
+                <Button variant="contained" onClick={this.printPieceLocations}>Print Piece Locations</Button>
             </div>
             <canvas
                 ref={this.canvasRef}

@@ -11,8 +11,7 @@ interface HistoricalBoard {
     blackKingIndex: number;
     whiteCanCastle: boolean[];
     blackCanCastle: boolean[];
-    whitePieceLocations: Record<number, number[]>;
-    blackPieceLocations: Record<number, number[]>;
+    pieceLocations: number[][];
 }
 
 interface BoardDelta {
@@ -66,23 +65,21 @@ export class Engine {
     castledThisTurn = false;
     timeTakenLastTurn = 0;
 
-    whitePieceLocations: Record<number, number[]> = {
-        [Piece.Pawn_W]: [],
-        [Piece.Bishop_W]: [],
-        [Piece.Knight_W]: [],
-        [Piece.Queen_W]: [],
-        [Piece.Rook_W]: [],
-        [Piece.King_W]: [] // include king for use in specific functions, but it should always stay empty
-    }
-
-    blackPieceLocations: Record<number, number[]> = {
-        [Piece.Pawn_B]: [],
-        [Piece.Bishop_B]: [],
-        [Piece.Knight_B]: [],
-        [Piece.Queen_B]: [],
-        [Piece.Rook_B]: [],
-        [Piece.King_B]: []
-    }
+    pieceLocations: number[][] = [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+    ]
 
     moveCount = 0;
     pinnedPieces: number[] = [];
@@ -116,9 +113,10 @@ export class Engine {
         let startingFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         //startingFEN = "5ppp/4Ppkp/5ppp/8/6q1/5P2/1K6/8 w - - 0 1"; // king in a box
         //startingFEN = "1rk4r/1pp3pp/p2b4/1n3P2/6P1/2nK4/7P/8 b - - 0 1"; // promotion break
-        startingFEN = "r3kb1r/ppp1pppp/2n5/6B1/4P1n1/2N5/PPP2PPP/R2K2NR w - - 0 1"; // fork
+        //startingFEN = "r3kb1r/ppp1pppp/2n5/6B1/4P1n1/2N5/PPP2PPP/R2K2NR w - - 0 1"; // fork
         //startingFEN = "rr2kb2/ppp1pppp/2n3n1/7B/B7/2N5/PPP2PPP/R2KR1N1 b - - 0 1"; // pins
         //startingFEN = "2N5/4k2p/p3pp2/6p1/8/P4n1P/4r3/1K1R4 b - - 0 1"; // threefold
+        //startingFEN = "1rbr4/1pp2pp1/p1p1p2p/3kP3/3PNKP1/8/PPP2P1P/R6R b - - 0 1"; // invincible king
         this.board = this.parseFEN(startingFEN);
         for (let i = 0; i < this.board.length; i++) {
             if (this.board[i] == Piece.King_W)
@@ -160,13 +158,9 @@ export class Engine {
     }
 
     createHistoricalBoard = () => {
-        let newWhitePieceLocations: Record<number, number[]> = {...this.whitePieceLocations}
-        for (let key in newWhitePieceLocations) {
-            newWhitePieceLocations[key] = [...newWhitePieceLocations[key]]
-        }
-        let newBlackPieceLocations: Record<number, number[]> = {...this.blackPieceLocations}
-        for (let key in newBlackPieceLocations) {
-            newBlackPieceLocations[key] = [...newBlackPieceLocations[key]]
+        let newPieceLocations: number[][] = [...this.pieceLocations]
+        for (let i = 0; i < newPieceLocations.length; i++) {
+            newPieceLocations[i] = [...newPieceLocations[i]]
         }
         
         return ({
@@ -176,8 +170,7 @@ export class Engine {
             blackKingIndex: this.blackKingIndex,
             whiteCanCastle: [...this.whiteCanCastle],
             blackCanCastle: [...this.blackCanCastle],
-            whitePieceLocations: newWhitePieceLocations,
-            blackPieceLocations: newBlackPieceLocations
+            pieceLocations: newPieceLocations,
         });
     }
 
@@ -188,8 +181,7 @@ export class Engine {
         this.blackKingIndex = historicalBoard.blackKingIndex;
         this.whiteCanCastle = [...historicalBoard.whiteCanCastle];
         this.blackCanCastle = [...historicalBoard.blackCanCastle];
-        this.whitePieceLocations = {...historicalBoard.whitePieceLocations};
-        this.blackPieceLocations = {...historicalBoard.blackPieceLocations};
+        this.pieceLocations = [...historicalBoard.pieceLocations];
         this.savedEvaluations = {};
         this.savedValidMoves = {};
         this.allValidMoves = this.getAllValidMoves();
@@ -257,10 +249,7 @@ export class Engine {
                     const piece = this.fenToPieceDict[terms[t]];
                     board[boardIndex] = piece;
 
-                    if (piece > 7)
-                        this.whitePieceLocations[piece].push(boardIndex);
-                    else if (piece < 7 && piece > 1)
-                        this.blackPieceLocations[piece].push(boardIndex);
+                    this.pieceLocations[piece].push(boardIndex);
 
                     boardIndex++;
                 }
@@ -473,21 +462,14 @@ export class Engine {
     getAttackedSquares = (white: boolean, toIndex: number) => {
         let attackedSquares: number[] = [];
 
-        let pieces: Record<number, number[]> = this.whitePieceLocations;
-        if (white)
-            pieces = this.blackPieceLocations;
-
-        for (let key in pieces) {
-            const piece = parseInt(key);
-            if (isNaN(piece) || piece == Piece.Empty)
-                continue;
-
-            const locations = pieces[key];
-            const length = locations.length;
-            for (let i = 0; i < length; i++) {
-                if (locations[i] == toIndex) // when searching for valid moves, instead of modifying the piece dictionaries, just ignore any piece that would have been captured
+        const startIndex = white ? 1 : 7;
+        const endIndex = white ? 6 : 12;
+        for (let i = startIndex; i <= endIndex; i++) {
+            const length = this.pieceLocations[i].length;
+            for (let j = 0; j < length; j++) {
+                if (this.pieceLocations[i][j] == toIndex) // when searching for valid moves, instead of modifying the piece dictionaries, just ignore any piece that would have been captured
                     continue;
-                this.getValidSquares(locations[i], piece, true, false, attackedSquares);
+                this.getValidSquares(this.pieceLocations[i][j], i, true, false, attackedSquares);
             }
         }
         // account for king moves
@@ -504,26 +486,12 @@ export class Engine {
         let tempArray: number[] = [];
 
         // we only care about sliding pieces of the opposite color for pins
-        let pieces: Record<number, number[]> = {};
-        if (white) {
-            pieces[Piece.Rook_B] = this.blackPieceLocations[Piece.Rook_B];
-            pieces[Piece.Queen_B] = this.blackPieceLocations[Piece.Queen_B];
-            pieces[Piece.Bishop_B] = this.blackPieceLocations[Piece.Bishop_B];
-        } else {
-            pieces[Piece.Rook_W] = this.whitePieceLocations[Piece.Rook_W];
-            pieces[Piece.Queen_W] = this.whitePieceLocations[Piece.Queen_W];
-            pieces[Piece.Bishop_W] = this.whitePieceLocations[Piece.Bishop_W];
-        }
-
-        for (let key in pieces) {
-            const piece = parseInt(key);
-            if (isNaN(piece) || piece == Piece.Empty)
-                continue;
-
-            const locations = pieces[key];
-            const length = locations.length;
-            for (let i = 0; i < length; i++) {
-                this.getValidSquares(locations[i], piece, true, true, tempArray);
+        const startIndex = white ? 2 : 8;
+        const endIndex = white ? 4 : 10;
+        for (let i = startIndex; i <= endIndex; i++) {
+            const length = this.pieceLocations[i].length;
+            for (let j = 0; j < length; j++) {
+                this.getValidSquares(this.pieceLocations[i][j], i, true, true, tempArray);
             }
         }
     }
@@ -601,45 +569,34 @@ export class Engine {
             allValid[key] = validCastleSquares[key];
         }
 
-        let pieces: Record<number, number[]> = this.blackPieceLocations;
-        if (this.whiteTurn) { // add the king temporarily
-            pieces = this.whitePieceLocations;
-            pieces[Piece.King_W] = [this.whiteKingIndex];
-        } else {
-            pieces[Piece.King_B] = [this.blackKingIndex];
-        }
-
         this.pinnedPieces = [];
         this.updatePinnedSquares(this.whiteTurn);
         const inCheck = this.isInCheckAttackedSquares(this.whiteTurn, baseAttackedSquares);
 
-        for (let key in pieces) {
-            const movingPiece = parseInt(key);
-            if (isNaN(movingPiece) || movingPiece == Piece.Empty)
-                continue;
-
-            const locations = pieces[key];
-            const length = locations.length;
-            for (let i = 0; i < length; i++) {
-                const location = locations[i];
+        const startIndex = this.whiteTurn ? 7 : 1;
+        const endIndex = this.whiteTurn ? 12 : 6;
+        for (let i = startIndex; i <= endIndex; i++) {
+            const length = this.pieceLocations[i].length;
+            for (let j = 0; j < length; j++) {
+                const location = this.pieceLocations[i][j];
 
                 let valid: number[] = [];
-                this.getValidSquares(location, movingPiece, false, false, valid);
+                this.getValidSquares(location, i, false, false, valid);
 
                 const isPinned = this.pinnedPieces.includes(location);
                 const validLength = valid.length;
-                for (let j = 0; j < validLength; j++) {
-                    if (inCheck || isPinned || movingPiece == Piece.King_W || movingPiece == Piece.King_B) { // more optimizations can definitely be made here
+                for (let k = 0; k < validLength; k++) {
+                    if (inCheck || isPinned || i == Piece.King_W || i == Piece.King_B) { // more optimizations can definitely be made here
                     //if (true) {
-                        const pieceBackup = this.board[valid[j]];
+                        const pieceBackup = this.board[valid[k]];
                         const backup2 = this.board[location];
-                        this.board[valid[j]] = movingPiece;
+                        this.board[valid[k]] = i;
                         this.board[location] = Piece.Empty;
-                        const attacked: number[] = this.getAttackedSquares(this.whiteTurn, valid[j]);
-                        this.board[valid[j]] = pieceBackup;
+                        const attacked: number[] = this.getAttackedSquares(this.whiteTurn, valid[k]);
+                        this.board[valid[k]] = pieceBackup;
                         this.board[location] = backup2;
-                        if (movingPiece == Piece.King_W || movingPiece == Piece.King_B) {
-                            if (attacked.includes(valid[j]))
+                        if (i == Piece.King_W || i == Piece.King_B) {
+                            if (attacked.includes(valid[k]))
                                 continue;
                         }
                         else if ((this.whiteTurn && attacked.includes(this.whiteKingIndex)) || (!this.whiteTurn && attacked.includes(this.blackKingIndex)))
@@ -647,37 +604,31 @@ export class Engine {
                     }
 
                     // add more moves to account for promoting to various pieces
-                    const y = Math.floor(valid[j] / this.boardSize);
-                    if (movingPiece == Piece.Pawn_W && y == 0) {
+                    const y = Math.floor(valid[k] / this.boardSize);
+                    if (i == Piece.Pawn_W && y == 0) {
                         if (location in allValid)
-                            allValid[location].push({ index: valid[j], data: Piece.Queen_W });
+                            allValid[location].push({ index: valid[k], data: Piece.Queen_W });
                         else
-                            allValid[location] = [{ index: valid[j], data: Piece.Queen_W }];
-                        allValid[location].push({ index: valid[j], data: Piece.Bishop_W });
-                        allValid[location].push({ index: valid[j], data: Piece.Knight_W });
-                        allValid[location].push({ index: valid[j], data: Piece.Rook_W });
-                    } else if (movingPiece == Piece.Pawn_B && y == 7) {
+                            allValid[location] = [{ index: valid[k], data: Piece.Queen_W }];
+                        allValid[location].push({ index: valid[k], data: Piece.Bishop_W });
+                        allValid[location].push({ index: valid[k], data: Piece.Knight_W });
+                        allValid[location].push({ index: valid[k], data: Piece.Rook_W });
+                    } else if (i == Piece.Pawn_B && y == 7) {
                         if (location in allValid)
-                            allValid[location].push({ index: valid[j], data: Piece.Queen_B });
+                            allValid[location].push({ index: valid[k], data: Piece.Queen_B });
                         else
-                            allValid[location] = [{ index: valid[j], data: Piece.Queen_B }];
-                        allValid[location].push({ index: valid[j], data: Piece.Bishop_B });
-                        allValid[location].push({ index: valid[j], data: Piece.Knight_B });
-                        allValid[location].push({ index: valid[j], data: Piece.Rook_B });
+                            allValid[location] = [{ index: valid[k], data: Piece.Queen_B }];
+                        allValid[location].push({ index: valid[k], data: Piece.Bishop_B });
+                        allValid[location].push({ index: valid[k], data: Piece.Knight_B });
+                        allValid[location].push({ index: valid[k], data: Piece.Rook_B });
                     } else {
                         if (location in allValid)
-                            allValid[location].push({ index: valid[j], data: 0 });
+                            allValid[location].push({ index: valid[k], data: 0 });
                         else
-                            allValid[location] = [{ index: valid[j], data: 0 }];
+                            allValid[location] = [{ index: valid[k], data: 0 }];
                     }
                 }
             }
-        }
-
-        if (this.whiteTurn) { // remove the king
-            pieces[Piece.King_W] = [];
-        } else {
-            pieces[Piece.King_B] = [];
         }
 
         this.savedValidMoves[hashString] = allValid;
@@ -722,15 +673,15 @@ export class Engine {
         const y = Math.floor(toIndex / this.boardSize);
         if (this.board[toIndex] == Piece.Pawn_W && y == 0) {
             this.board[toIndex] = move.data;
-            this.whitePieceLocations[Piece.Pawn_W].splice(this.whitePieceLocations[Piece.Pawn_W].indexOf(fromIndex), 1); // remove pawn entry
-            this.whitePieceLocations[move.data].push(toIndex); // add new piece entry
+            this.pieceLocations[Piece.Pawn_W].splice(this.pieceLocations[Piece.Pawn_W].indexOf(fromIndex), 1); // remove pawn entry
+            this.pieceLocations[move.data].push(toIndex); // add new piece entry
             this.boardDelta.push({ index: -1, piece: move.data, target: toIndex, canCastle: [] }); // add promotion delta
             promoted = true;
         }
         else if (this.board[toIndex] == Piece.Pawn_B && y == 7) {
             this.board[toIndex] = move.data;
-            this.blackPieceLocations[Piece.Pawn_B].splice(this.blackPieceLocations[Piece.Pawn_B].indexOf(fromIndex), 1); // remove pawn entry
-            this.blackPieceLocations[move.data].push(toIndex); // add new piece entry
+            this.pieceLocations[Piece.Pawn_B].splice(this.pieceLocations[Piece.Pawn_B].indexOf(fromIndex), 1); // remove pawn entry
+            this.pieceLocations[move.data].push(toIndex); // add new piece entry
             this.boardDelta.push({ index: -1, piece: move.data, target: toIndex, canCastle: [] }); // add promotion delta
             promoted = true;
         }
@@ -760,20 +711,12 @@ export class Engine {
 
         // update moved piece position unless promoted since that is already handled
         if (!promoted) {
-            if (movingPiece > 7) { // white
-                this.whitePieceLocations[movingPiece].splice(this.whitePieceLocations[movingPiece].indexOf(fromIndex), 1, toIndex); // update stored position
-            } else if (movingPiece > 1 && movingPiece < 7) { // black
-                this.blackPieceLocations[movingPiece].splice(this.blackPieceLocations[movingPiece].indexOf(fromIndex), 1, toIndex); // update stored position
-            }
+            this.pieceLocations[movingPiece].splice(this.pieceLocations[movingPiece].indexOf(fromIndex), 1, toIndex); // update stored position
         }
 
         // remove captured piece
         if (capturedPiece != Piece.Empty) {
-            if (capturedPiece > 7) { // white
-                this.whitePieceLocations[capturedPiece].splice(this.whitePieceLocations[capturedPiece].indexOf(toIndex), 1); // remove entry
-            } else if (capturedPiece > 1 && capturedPiece < 7) { // black
-                this.blackPieceLocations[capturedPiece].splice(this.blackPieceLocations[capturedPiece].indexOf(toIndex), 1); // remove entry
-            }
+            this.pieceLocations[capturedPiece].splice(this.pieceLocations[capturedPiece].indexOf(toIndex), 1); // remove entry
         }
 
         if (finishTurn) {
@@ -794,32 +737,16 @@ export class Engine {
         for (let i = 0; i < deltas.length; i++) {
             if (deltas[i].piece != Piece.Empty) { // ignore any empty piece entries
                 if (deltas[i].index == -1) { // if the original index is -1, it means the piece was created from promotion, so remove the piece
-                    if (deltas[i].piece > 7) { // white
-                        this.whitePieceLocations[deltas[i].piece].splice(this.whitePieceLocations[deltas[i].piece].indexOf(deltas[i].target), 1); // remove entry
-                    } else if (deltas[i].piece > 1 && deltas[i].piece < 7) { // black
-                        this.blackPieceLocations[deltas[i].piece].splice(this.blackPieceLocations[deltas[i].piece].indexOf(deltas[i].target), 1); // remove entry
-                    }
+                    this.pieceLocations[deltas[i].piece].splice(this.pieceLocations[deltas[i].piece].indexOf(deltas[i].target), 1); // remove entry
                 }
                 else if (this.board[deltas[i].index] != Piece.Empty) { // was captured so add the piece back to register
-                    if (deltas[i].piece > 7) { // white
-                        this.whitePieceLocations[deltas[i].piece].push(deltas[i].index);
-                    } else if (deltas[i].piece > 1 && deltas[i].piece < 7) { // black
-                        this.blackPieceLocations[deltas[i].piece].push(deltas[i].index);
-                    }
+                    this.pieceLocations[deltas[i].piece].push(deltas[i].index);
                 } else if (deltas[i].target != -1) { // otherwise just move it back
-                    if (deltas[i].piece > 7) { // white
-                        const foundIndex = this.whitePieceLocations[deltas[i].piece].indexOf(deltas[i].target);
+                    const foundIndex = this.pieceLocations[deltas[i].piece].indexOf(deltas[i].target);
                         if (foundIndex != -1)
-                            this.whitePieceLocations[deltas[i].piece].splice(foundIndex, 1, deltas[i].index); // replace with new location
+                            this.pieceLocations[deltas[i].piece].splice(foundIndex, 1, deltas[i].index); // replace with new location
                         else
-                            this.whitePieceLocations[deltas[i].piece].push(deltas[i].index);
-                    } else if (deltas[i].piece > 1 && deltas[i].piece < 7) { // black
-                        const foundIndex = this.blackPieceLocations[deltas[i].piece].indexOf(deltas[i].target);
-                        if (foundIndex != -1)
-                            this.blackPieceLocations[deltas[i].piece].splice(foundIndex, 1, deltas[i].index); // replace with new location
-                        else
-                            this.blackPieceLocations[deltas[i].piece].push(deltas[i].index);
-                    }
+                            this.pieceLocations[deltas[i].piece].push(deltas[i].index);
                 }
             }
 
@@ -847,14 +774,14 @@ export class Engine {
             if (this.whiteCanCastle[0] && toIndex == 62) {
                 this.boardDelta.push({ index: 63, piece: this.board[63], target: 61, canCastle: [...this.whiteCanCastle] });
                 this.boardDelta.push({ index: 61, piece: this.board[61], target: -1, canCastle: [...this.whiteCanCastle] });
-                this.whitePieceLocations[Piece.Rook_W].splice(this.whitePieceLocations[Piece.Rook_W].indexOf(63), 1, 61); // replace with new location
+                this.pieceLocations[Piece.Rook_W].splice(this.pieceLocations[Piece.Rook_W].indexOf(63), 1, 61); // replace with new location
                 this.board[63] = Piece.Empty;
                 this.board[61] = Piece.Rook_W;
                 castled = true;
             } else if (this.whiteCanCastle[1] && toIndex == 58) {
                 this.boardDelta.push({ index: 56, piece: this.board[56], target: 59, canCastle: [...this.whiteCanCastle] });
                 this.boardDelta.push({ index: 59, piece: this.board[59], target: -1, canCastle: [...this.whiteCanCastle] });
-                this.whitePieceLocations[Piece.Rook_W].splice(this.whitePieceLocations[Piece.Rook_W].indexOf(56), 1, 59); // replace with new location
+                this.pieceLocations[Piece.Rook_W].splice(this.pieceLocations[Piece.Rook_W].indexOf(56), 1, 59); // replace with new location
                 this.board[56] = Piece.Empty;
                 this.board[59] = Piece.Rook_W;
                 castled = true;
@@ -869,14 +796,14 @@ export class Engine {
             if (this.blackCanCastle[0] && toIndex == 6) {
                 this.boardDelta.push({ index: 7, piece: this.board[7], target: 5, canCastle: [...this.blackCanCastle] });
                 this.boardDelta.push({ index: 5, piece: this.board[5], target: -1, canCastle: [...this.blackCanCastle] });
-                this.blackPieceLocations[Piece.Rook_B].splice(this.blackPieceLocations[Piece.Rook_B].indexOf(7), 1, 5); // replace with new location
+                this.pieceLocations[Piece.Rook_B].splice(this.pieceLocations[Piece.Rook_B].indexOf(7), 1, 5); // replace with new location
                 this.board[7] = Piece.Empty;
                 this.board[5] = Piece.Rook_B;
                 castled = true;
             } else if (this.blackCanCastle[1] && toIndex == 2) {
                 this.boardDelta.push({ index: 0, piece: this.board[0], target: 3, canCastle: [...this.blackCanCastle] });
                 this.boardDelta.push({ index: 3, piece: this.board[3], target: -1, canCastle: [...this.blackCanCastle] });
-                this.blackPieceLocations[Piece.Rook_B].splice(this.blackPieceLocations[Piece.Rook_B].indexOf(0), 1, 3); // replace with new location
+                this.pieceLocations[Piece.Rook_B].splice(this.pieceLocations[Piece.Rook_B].indexOf(0), 1, 3); // replace with new location
                 this.board[0] = Piece.Empty;
                 this.board[3] = Piece.Rook_B;
                 castled = true;
@@ -1041,18 +968,10 @@ export class Engine {
         if (piece == Piece.Empty)
             return 0;
 
-        if (white) {
-            const positions = this.whitePieceLocations[piece];
-            const length = positions.length;
-            for (let i = 0; i < length; i++) {
-                value += this.readSquareTableValue(positions[i], table, white);
-            }
-        } else {
-            const positions = this.blackPieceLocations[piece];
-            const length = positions.length;
-            for (let i = 0; i < length; i++) {
-                value += this.readSquareTableValue(positions[i], table, white);
-            }
+        const positions = this.pieceLocations[piece];
+        const length = positions.length;
+        for (let i = 0; i < length; i++) {
+            value += this.readSquareTableValue(positions[i], table, white);
         }
 
         return value;
@@ -1124,16 +1043,10 @@ export class Engine {
     countMaterial = (white: boolean) => {
         let value: number = 0;
 
-        let pieces: Record<number, number[]> = this.blackPieceLocations;
-        if (white)
-            pieces = this.whitePieceLocations;
-
-        for (let key in pieces) {
-            const pieceIndex = parseInt(key);
-            if (isNaN(pieceIndex))
-                continue;
-
-            value += this.getPieceValue(pieceIndex) * pieces[key].length;
+        const startIndex = white ? 8 : 2;
+        const endIndex = white ? 12 : 6;
+        for (let i = startIndex; i <= endIndex; i++) {
+            value += this.getPieceValue(i) * this.pieceLocations[i].length;
         }
 
         return value;
@@ -1407,6 +1320,9 @@ ctx.addEventListener("message", (e) => {
             });
             break;
         }
+        case EngineCommands.RetrievePieceLocations:
+            ctx.postMessage({ command: e.data.command, locations: engine.pieceLocations });
+            break;
         default:
             break;
     }
