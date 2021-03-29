@@ -116,9 +116,9 @@ export class Engine {
         let startingFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         //startingFEN = "5ppp/4Ppkp/5ppp/8/6q1/5P2/1K6/8 w - - 0 1"; // king in a box
         //startingFEN = "1rk4r/1pp3pp/p2b4/1n3P2/6P1/2nK4/7P/8 b - - 0 1"; // promotion break
-        //startingFEN = "r3kb1r/ppp1pppp/2n5/6B1/4P1n1/2N5/PPP2PPP/R2K2NR w - - 0 1"; // fork
+        startingFEN = "r3kb1r/ppp1pppp/2n5/6B1/4P1n1/2N5/PPP2PPP/R2K2NR w - - 0 1"; // fork
         //startingFEN = "rr2kb2/ppp1pppp/2n3n1/7B/B7/2N5/PPP2PPP/R2KR1N1 b - - 0 1"; // pins
-        startingFEN = "2N5/4k2p/p3pp2/6p1/8/P4n1P/4r3/1K1R4 b - - 0 1"; // threefold
+        //startingFEN = "2N5/4k2p/p3pp2/6p1/8/P4n1P/4r3/1K1R4 b - - 0 1"; // threefold
         this.board = this.parseFEN(startingFEN);
         for (let i = 0; i < this.board.length; i++) {
             if (this.board[i] == Piece.King_W)
@@ -127,7 +127,7 @@ export class Engine {
                 this.blackKingIndex = i;
         }
         this.historicalBoards.push(this.createHistoricalBoard());
-        this.allValidMoves = this.getAllValidMoves(false);
+        this.allValidMoves = this.getAllValidMoves();
 
         // initialize the hash table
         const maxVal: bigInt.BigNumber = bigInt(2).pow(64).minus(1);
@@ -192,7 +192,7 @@ export class Engine {
         this.blackPieceLocations = {...historicalBoard.blackPieceLocations};
         this.savedEvaluations = {};
         this.savedValidMoves = {};
-        this.allValidMoves = this.getAllValidMoves(false);
+        this.allValidMoves = this.getAllValidMoves();
     }
 
     stepBack = () => {
@@ -528,9 +528,8 @@ export class Engine {
         }
     }
 
-    getValidCastleSquares = () => {
+    getValidCastleSquares = (attackedSquares: number[]) => {
         let validCastleSquares: Record<number, MoveInfo[]> = {};
-        const attackedSquares = this.getAttackedSquares(this.whiteTurn, -1);
 
         if (this.whiteTurn) {
             let traced: number[] = [];
@@ -584,15 +583,20 @@ export class Engine {
         return ((white && attacked.includes(this.whiteKingIndex)) || (!white && attacked.includes(this.blackKingIndex)));
     }
 
-    getAllValidMoves = (bothSides: boolean) => {
+    isInCheckAttackedSquares = (white: boolean, attacked: number[]) => {
+        return ((white && attacked.includes(this.whiteKingIndex)) || (!white && attacked.includes(this.blackKingIndex)));
+    }
+
+    getAllValidMoves = () => {
         const hashString = this.boardHash.toString();
         if (hashString in this.savedValidMoves) {
             return this.savedValidMoves[hashString];
         }
 
         let allValid: Record<number, MoveInfo[]> = {};
+        const baseAttackedSquares = this.getAttackedSquares(this.whiteTurn, -1);
 
-        const validCastleSquares = this.getValidCastleSquares();
+        const validCastleSquares = this.getValidCastleSquares(baseAttackedSquares);
         for (let key in validCastleSquares) {
             allValid[key] = validCastleSquares[key];
         }
@@ -607,7 +611,7 @@ export class Engine {
 
         this.pinnedPieces = [];
         this.updatePinnedSquares(this.whiteTurn);
-        const inCheck = this.isInCheck(this.whiteTurn);
+        const inCheck = this.isInCheckAttackedSquares(this.whiteTurn, baseAttackedSquares);
 
         for (let key in pieces) {
             const movingPiece = parseInt(key);
@@ -685,18 +689,18 @@ export class Engine {
         this.historicalBoards.push(this.createHistoricalBoard());
         this.boardHash = this.hashBoard();
         this.boardDelta = [];
-        this.allValidMoves = this.getAllValidMoves(false);
+        this.allValidMoves = this.getAllValidMoves();
         this.savedEvaluations = {};
         this.savedValidMoves = {};
 
         // debug print found moves
-        for (let i = 0; i < this.movesFoundThisTurn.length; i++) {
-            const move = this.movesFoundThisTurn[i];
-            const data = getPieceName(move.data);
-            const dataString = data != "" ? ` promoting to ${data}` : ""
-            console.log(`Move: ${getPieceName(move.piece)} from ${move.from} to ${move.to}${dataString} with eval ${move.eval}`);
-        }
-        console.log("DONE")
+        // for (let i = 0; i < this.movesFoundThisTurn.length; i++) {
+        //     const move = this.movesFoundThisTurn[i];
+        //     const data = getPieceName(move.data);
+        //     const dataString = data != "" ? ` promoting to ${data}` : ""
+        //     console.log(`Move: ${getPieceName(move.piece)} from ${move.from} to ${move.to}${dataString} with eval ${move.eval}`);
+        // }
+        // console.log("DONE")
         this.movesFoundThisTurn = [];
 
         //console.log(`Finished move ${this.moveCount}`)
@@ -752,7 +756,6 @@ export class Engine {
         }
         else {
             this.enPassantSquare = -1;
-            this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1, canCastle: [] });
         }
 
         // update moved piece position unless promoted since that is already handled
@@ -774,14 +777,14 @@ export class Engine {
         }
 
         if (finishTurn) {
+            this.finishTurn();
+
             // update board repetition history
             if (movingPiece == Piece.Pawn_W || movingPiece == Piece.Pawn_W || capturedPiece != Piece.Empty) { // repetitions not possible with these moves
                 this.repetitionHistory = [];
             } else {
-                this.repetitionHistory.push(this.hashBoard());
+                this.repetitionHistory.push(this.boardHash);
             }
-
-            this.finishTurn();
         }
     }
 
@@ -856,7 +859,7 @@ export class Engine {
                 this.board[59] = Piece.Rook_W;
                 castled = true;
             } else {
-                this.boardDelta.push({ index: fromIndex, piece: Piece.King_W, target: toIndex, canCastle: [...this.whiteCanCastle] });
+                this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1, canCastle: [...this.whiteCanCastle] });
             }
 
             this.whiteKingIndex = toIndex;
@@ -878,7 +881,7 @@ export class Engine {
                 this.board[3] = Piece.Rook_B;
                 castled = true;
             } else {
-                this.boardDelta.push({ index: fromIndex, piece: Piece.King_B, target: toIndex, canCastle: [...this.blackCanCastle] });
+                this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1, canCastle: [...this.blackCanCastle] });
             }
 
             this.blackKingIndex = toIndex;
@@ -1143,8 +1146,8 @@ export class Engine {
 
         if (offset > 0) {
             // detect any repetition and assume a draw is coming (return a 0 draw score)
-            //if (this.repetitionHistory.includes(this.boardHash))
-            //    return 0;
+            if (this.repetitionHistory.includes(this.boardHash))
+                return 0;
 
             // modify the values to skip this position if a mating sequence has already been found and is shorter
             alpha = Math.max(alpha, Number.MIN_SAFE_INTEGER + offset);
@@ -1174,7 +1177,7 @@ export class Engine {
             }
         }
 
-        const validMoves = this.getAllValidMoves(false);
+        const validMoves = this.getAllValidMoves();
         const sortedMoves = this.predictAndOrderMoves(validMoves);
         if (sortedMoves.length == 0) { // either checkmate or stalemate
             if (this.isInCheck(this.whiteTurn))
@@ -1192,13 +1195,12 @@ export class Engine {
         const length = sortedMoves.length;
         for (let i = 0; i < length; i++) {
             // make the move
-            const capture = this.board[sortedMoves[i].move.to];
             this.updateCastleStatus(sortedMoves[i].move.from, sortedMoves[i].move.to);
             this.forceMakeMove(sortedMoves[i].move.from, { index: sortedMoves[i].move.to, data: sortedMoves[i].move.data }, false);
             const deltas = this.boardDelta;
-            this.boardHash = this.updateHash(deltas, startingHash, oldEnPassant, oldBlackCanCastle, oldWhiteCanCastle);
             this.boardDelta = [];
             this.whiteTurn = !this.whiteTurn;
+            this.boardHash = this.updateHash(deltas, startingHash, oldEnPassant, oldBlackCanCastle, oldWhiteCanCastle);
 
             // calculate evaluation (one player's upper bound is the other's lower bound)
             let evaluation = -1 * this.findBestMove(depth - 1, offset + 1, -beta, -alpha);
@@ -1246,7 +1248,7 @@ export class Engine {
         if (hashString in this.savedEvaluations && this.savedEvaluations[hashString].depth == depth)
             return this.savedEvaluations[hashString].totalMoves;
 
-        const validMoves = this.getAllValidMoves(false);
+        const validMoves = this.getAllValidMoves();
         let totalMoves = 0;
 
         const startingHash = this.boardHash;
@@ -1340,7 +1342,7 @@ export class Engine {
         if ((this.whiteTurn && movingPiece < Piece.King_W) || (!this.whiteTurn && movingPiece > Piece.Pawn_B))
             return false;
 
-        const validMoves = this.getAllValidMoves(false);
+        const validMoves = this.getAllValidMoves();
         if (!(fromIndex in validMoves))
             return false;
         if (!validMoves[fromIndex].some(e => e.index == toIndex))

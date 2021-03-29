@@ -175,7 +175,7 @@ export class Board extends React.Component<Props, State> {
                     }
                 }
 
-                //console.log(e.data.timeTaken);
+                console.log(e.data.timeTaken);
                 if (e.data.timeTaken < 1000) { // artifically add a delay if the move was made too quickly
                     setTimeout(updateData, 1000 - e.data.timeTaken);
                 } else {
