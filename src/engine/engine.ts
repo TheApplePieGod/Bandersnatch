@@ -121,6 +121,7 @@ export class Engine {
     constructor() {
         this.board = [];
 
+        //https://docs.google.com/spreadsheets/d/1fWA-9QW-C8Dc-8LDrEemSligWcprkpKif6cNDs4V_mg/edit#gid=0
         let startingFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         //startingFEN = "5ppp/4Ppkp/5ppp/8/6q1/5P2/1K6/8 w - - 0 1"; // king in a box
         //startingFEN = "1rk4r/1pp3pp/p2b4/1n3P2/6P1/2nK4/7P/8 b - - 0 1"; // promotion break
@@ -129,6 +130,8 @@ export class Engine {
         //startingFEN = "2N5/4k2p/p3pp2/6p1/8/P4n1P/4r3/1K1R4 b - - 0 1"; // threefold test
         //startingFEN = "8/8/1N4R1/4p3/2P5/2k2n1P/5r2/2K5 w - - 0 1"; // real threefold
         //startingFEN = "3r4/3r4/3k4/8/8/3K4/8/8 w - - 0 1"; // one sided rook endgame
+        //startingFEN = "6k1/5p2/6p1/8/7p/8/6PP/6K1 b - - 0 0"; // hard pawn endgame
+        //startingFEN = "4R3/1k6/1p2P1p1/p7/4r3/1P1r4/1K6/2R5 w - - 0 0"; // 4 rooks endgame
 
         // initialize the hash table (0-63)
         const maxVal: bigInt.BigNumber = bigInt(2).pow(64).minus(1);
@@ -573,12 +576,13 @@ export class Engine {
         return ((white && attacked.includes(this.pieceLocations[Piece.King_W][0])) || (!white && attacked.includes(this.pieceLocations[Piece.King_B][0])));
     }
 
-    getAllValidMoves = (baseAttackedSquares: number[] = []) => {
+    getAllValidMoves = (capturesOnly: boolean = false, baseAttackedSquares: number[] = []) => {
         let allValid: EvalMove[] = [];
         if (baseAttackedSquares.length == 0)
             baseAttackedSquares = this.getAttackedSquares(this.whiteTurn, -1);
 
-        this.getValidCastleSquares(baseAttackedSquares, allValid);
+        if (!capturesOnly)
+            this.getValidCastleSquares(baseAttackedSquares, allValid);
 
         this.pinnedPieces = [];
         this.updatePinnedSquares(this.whiteTurn);
@@ -592,11 +596,14 @@ export class Engine {
                 const location = this.pieceLocations[i][j];
 
                 let valid: number[] = [];
-                this.getValidSquares(location, i, false, false, valid);
+                this.getValidSquares(location, i, capturesOnly, false, valid);
 
                 const isPinned = this.pinnedPieces.includes(location);
                 const validLength = valid.length;
                 for (let k = 0; k < validLength; k++) {
+                    if (capturesOnly && this.board[valid[k]] == Piece.Empty)
+                        continue;
+
                     if (inCheck || isPinned || i == Piece.King_W || i == Piece.King_B) { // more optimizations here?
                     //if (true) {
                         const pieceBackup = this.board[valid[k]];
@@ -895,6 +902,7 @@ export class Engine {
 
     predictAndOrderMoves = (moves: EvalMove[], attackedSquares: number[]) => {
         const movesLength = moves.length;
+        
         for (let i = 0; i < movesLength; i++) {
             let score = 0;
             const movingPiece = this.board[moves[i].from];
@@ -906,9 +914,9 @@ export class Engine {
             }
 
             // deprioritize moving into attacked squares
-            // if (attackedSquares.includes(moves[i].to)) {
-            //     score -= this.getPieceValue(movingPiece);
-            // }
+            if (attackedSquares.includes(moves[i].to)) {
+                score -= this.getPieceValue(movingPiece);
+            }
 
             // score promotion moves
             if (movingPiece == Piece.Pawn_W || movingPiece == Piece.Pawn_B) {
@@ -987,7 +995,7 @@ export class Engine {
         return value;
     }
 
-    evaluateEndgamePosition = (endgameWeight: number, white: boolean, friendlyKingX: number, friendlyKingY: number, opponentKingX: number, opponentKingY: number, distance: number) => {
+    evaluateEndgamePosition = (endgameWeight: number, opponentKingX: number, opponentKingY: number, distance: number) => {
         let score = 0;
 
         // try to push the enemy king into the corner
@@ -997,11 +1005,11 @@ export class Engine {
         // try and move kings together
         score += 14 - distance;
 
-        return Math.floor(score * 10 * endgameWeight);
+        return Math.floor(score * 20 * endgameWeight);
     }
 
     evaluate = () => {
-        const materialWeight = 2;
+        const materialWeight = 1;
         const developmentWeight = 1;
 
         const whiteMaterial = this.countMaterial(true);
@@ -1023,8 +1031,8 @@ export class Engine {
         const blackX = this.pieceLocations[Piece.King_B][0] % this.boardSize;
         const blackY = Math.floor(this.pieceLocations[Piece.King_B][0] / this.boardSize);
         const distanceBetween = Math.abs(whiteX - blackX) + Math.abs(whiteY - blackY);
-        whiteEval += this.evaluateEndgamePosition(whiteEndgameWeight, true, whiteX, whiteY, blackX, blackY, distanceBetween);
-        blackEval += this.evaluateEndgamePosition(blackEndgameWeight, false, blackX, blackY, whiteX, whiteY, distanceBetween);
+        whiteEval += this.evaluateEndgamePosition(whiteEndgameWeight, blackX, blackY, distanceBetween);
+        blackEval += this.evaluateEndgamePosition(blackEndgameWeight, whiteX, whiteY, distanceBetween);
 
         let evaluation = whiteEval - blackEval;
         if (!this.whiteTurn)
@@ -1094,9 +1102,6 @@ export class Engine {
     findBestMove = (canCancel: boolean, depth: number, offset: number, alpha: number, beta: number) => {
         if (canCancel && Date.now() - this.searchStartTime >= this.searchMaxTime) // abort search
             return 0;
-        
-        if (depth <= 0)
-            return this.evaluate();
 
         if (offset > 0) {
             // detect any repetition and assume a draw is coming (return a 0 draw score)
@@ -1133,8 +1138,11 @@ export class Engine {
             }
         }
 
+        if (depth <= 0)
+            return this.quiescenceSearch(alpha, beta);
+
         const attackedSquares = this.getAttackedSquares(this.whiteTurn, -1);
-        const validMoves = this.getAllValidMoves(attackedSquares);
+        const validMoves = this.getAllValidMoves(false, attackedSquares);
         if (validMoves.length == 0) { // either checkmate or stalemate
             if (this.isInCheckAttackedSquares(this.whiteTurn, attackedSquares))
                 return Number.MIN_SAFE_INTEGER + offset; // checkmate, worst possible move
@@ -1150,7 +1158,7 @@ export class Engine {
         let savingType = SavedEvalTypes.Alpha;
         const length = validMoves.length;
         for (let i = 0; i < length; i++) {
-            // make the move
+            // make the move (todo: move to function)
             this.updateCastleStatus(validMoves[i].from, validMoves[i].to);
             this.forceMakeMove(validMoves[i].from, { index: validMoves[i].to, data: validMoves[i].data }, false);
             const deltas = this.boardDelta;
@@ -1199,6 +1207,43 @@ export class Engine {
         }
 
         this.savedEvaluations[hashString] = { totalMoves: 0, depth: depth, bestMove: bestMoveForThisPosition, type: savingType, eval: alpha };
+        return alpha;
+    }
+
+    // search until the position is 'quiet' (no captures remaining)
+    quiescenceSearch(alpha: number, beta: number) {
+        let evaluation: number = this.evaluate(); // evaluate first to prevent forcing a bad capture when there may have been better non capture moves
+        if (evaluation >= beta)
+            return beta;
+        if (evaluation > alpha)
+            alpha = evaluation;
+
+        const attackedSquares = this.getAttackedSquares(this.whiteTurn, -1);
+        const validMoves = this.getAllValidMoves(true, attackedSquares);
+        this.predictAndOrderMoves(validMoves, attackedSquares);
+
+        const oldEnPassant = this.enPassantSquare;
+        const length = validMoves.length;
+        for (let i = 0; i < length; i++) {
+            // make the move (todo: move to function)
+            // dont update hash because it isn't relevant here
+            this.forceMakeMove(validMoves[i].from, { index: validMoves[i].to, data: validMoves[i].data }, false);
+            const deltas = this.boardDelta;
+            this.boardDelta = [];
+            this.whiteTurn = !this.whiteTurn;
+
+            evaluation = -1 * this.quiescenceSearch(-beta, -alpha);
+
+            // unmake the move
+            this.unmakeMove(deltas);
+            this.enPassantSquare = oldEnPassant;
+
+            if (evaluation >= beta)
+                return beta;
+            if (evaluation > alpha)
+                alpha = evaluation;
+        }
+
         return alpha;
     }
 
