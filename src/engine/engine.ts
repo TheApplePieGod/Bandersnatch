@@ -1232,6 +1232,10 @@ export class Engine {
             this.boardDelta = [];
             this.whiteTurn = !this.whiteTurn;
 
+            // evaluation = -1 * this.quiescenceSearch(-alpha - 1, -alpha);
+            // if (evaluation > alpha && evaluation < beta)
+            //     evaluation = -1 * this.quiescenceSearch(-beta, -alpha);
+
             evaluation = -1 * this.quiescenceSearch(-beta, -alpha);
 
             // unmake the move

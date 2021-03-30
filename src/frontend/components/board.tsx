@@ -288,7 +288,11 @@ export class Board extends React.Component<Props, State> {
                 ctx.fillStyle = (x + y) % 2 == 1 ? '#403e38' : '#ded6c1';
                 ctx.fillRect(xPos, yPos, cellSize, cellSize);
 
-                if (boardIndex == this.lastMoveFrom || boardIndex == this.lastMoveTo) {
+                if (boardIndex == this.draggingIndex) {
+                    ctx.fillStyle = '#2c4ed470';
+                    ctx.fillRect(xPos, yPos, cellSize, cellSize);
+                }
+                else if (boardIndex == this.lastMoveFrom || boardIndex == this.lastMoveTo) {
                     ctx.fillStyle = '#f57b4270';
                     ctx.fillRect(xPos, yPos, cellSize, cellSize);
                 }
@@ -367,7 +371,11 @@ export class Board extends React.Component<Props, State> {
     onMouseUp = () => {
         if (this.draggingIndex != -1) {
             if (!this.state.waitingForMove) {
-                this.engineWorker.postMessage({ command: EngineCommands.AttemptMove, fromIndex: this.draggingIndex, toIndex: this.getMouseBoardIndex() });
+                const boardIndex = this.getMouseBoardIndex();
+                if (boardIndex != this.draggingIndex)
+                    this.engineWorker.postMessage({ command: EngineCommands.AttemptMove, fromIndex: this.draggingIndex, toIndex: boardIndex });
+                else
+                    this.draggingIndex = -1;
             } else {
                 this.draggingIndex = -1;
                 this.playSound(Sounds.IllegalMove);
@@ -423,6 +431,7 @@ export class Board extends React.Component<Props, State> {
                     label={<Typography color="textPrimary">Bot Iterative Deepening</Typography>}
                 />
                 <Button disabled={this.state.waitingForMove} variant="contained" onClick={this.botMove}>Make a bot move</Button>
+                <br />
                 <Button variant="contained" onClick={this.printPieceLocations}>Print Piece Locations</Button>
             </div>
             <canvas
