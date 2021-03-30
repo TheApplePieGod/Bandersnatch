@@ -1,3 +1,3 @@
-Frontend Only Web Template
+## Bandersnatch
 
-A template for a static frontend website
+A chess engine and visualizer built in javascript.
