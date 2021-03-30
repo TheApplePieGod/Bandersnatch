@@ -1159,7 +1159,11 @@ export class Engine {
             this.boardHash = this.updateHash(deltas, startingHash, oldEnPassant, oldCastleStatus);
 
             // calculate evaluation (one player's upper bound is the other's lower bound)
-            let evaluation = -1 * this.findBestMove(canCancel, depth - 1, offset + 1, -beta, -alpha);
+            let evaluation: number = -1 * this.findBestMove(canCancel, depth - 1, offset + 1, -alpha - 1, -alpha);
+            if (evaluation > alpha && evaluation < beta)
+                evaluation = -1 * this.findBestMove(canCancel, depth - 1, offset + 1, -beta, -alpha);
+
+            //let evaluation: number = -1 * this.findBestMove(canCancel, depth - 1, offset + 1, -beta, -alpha);
 
             // unmake the move
             this.unmakeMove(deltas);
