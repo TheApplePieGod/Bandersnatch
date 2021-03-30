@@ -1,8 +1,10 @@
-import { Button, FormControlLabel, Checkbox, Typography } from '@material-ui/core';
+import { Button, FormControlLabel, Checkbox, Typography, Paper } from '@material-ui/core';
 import bigInt from 'big-integer';
 import React from 'react';
-import { Piece, getPieceName, EngineCommands, Sounds, EvalMove } from "../../definitions";
+import { Piece, getPieceName, getPieceNameShort, EngineCommands, Sounds, EvalMove, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation } from "../../definitions";
 import EngineWorker from "worker-loader!../../engine/engine";
+import EvalWorker from "worker-loader!../../engine/evaluation";
+import { EvaluationBar } from './evaluationBar';
 
 interface Props {
 
@@ -18,23 +20,39 @@ interface State {
     botMoveAutoplay: boolean;
     playAgainstBot: boolean;
     botIterative: boolean;
+    currentEval: number;
+    localHistory: History[];
+    historyIndex: number;
+}
+
+interface History {
+    lastMoveFrom: number;
+    lastMoveTo: number;
+    soundMade: number;
+    movesConsidered: DebugMoveOutput[];
+    validMoves: EvalMove[];
+    moveTime: number;
+    searchDepth: number;
+    whiteTurn: boolean;
 }
 
 export class Board extends React.Component<Props, State> {
     canvasRef: React.RefObject<HTMLCanvasElement>;
     images: Record<number, HTMLImageElement>;
     engineWorker = new EngineWorker();
+    evalWorker = new EvalWorker();
+
+    evalTimeout: any = 0;
+    nextBoardToEval: HistoricalBoard | undefined = undefined;
+
     localBoard: number[];
-    localValidMoves: EvalMove[] = [];
-    lastMoveFrom = -1;
-    lastMoveTo = -1;
-    lastTimeTaken = 0;
     animationFrameId = 0;
     draggingIndex = -1;
     relativeMousePos = { x: 0, y: 0 };
-    boardScaleFactor = 0.9;
     boardSize = 8;
     botMoveMinTime = 1000;
+    rendering = false;
+
     constructor(props: Props) {
         super(props);
         this.canvasRef = React.createRef<HTMLCanvasElement>();
@@ -43,16 +61,27 @@ export class Board extends React.Component<Props, State> {
         this.state = {
             width: window.innerWidth,
             height: window.innerHeight,
-            cellSize: Math.floor(Math.min(window.innerWidth * this.boardScaleFactor, window.innerHeight * this.boardScaleFactor) / 8),
+            cellSize: Math.floor(Math.min(window.innerWidth * this.boardScaleFactor(window.innerWidth), window.innerHeight * this.boardScaleFactor(window.innerWidth)) / 8),
             showNumbers: false,
             showValidMoves: false,
             waitingForMove: false,
             botMoveAutoplay: false,
             playAgainstBot: false,
             botIterative: true,
+            currentEval: 0,
+            localHistory: [],
+            historyIndex: 0
         };
 
         this.engineWorker.onmessage = this.handleMessage;
+        this.evalWorker.onmessage = this.handleEvalMessage;
+    }
+
+    boardScaleFactor = (width: number) => {
+        if (width < 900)
+            return 0.95;
+        else
+            return 0.7;
     }
 
     playSound = (sound: number) => {
@@ -104,90 +133,157 @@ export class Board extends React.Component<Props, State> {
         }
     }
 
+    handleEvalMessage = (e: MessageEvent) => {
+        switch (e.data.command) {
+            case EvalCommands.ReceiveCurrentEval:
+                this.setState({ currentEval: e.data.eval });
+                break;
+            default:
+                break;
+        }
+    }
+
     handleMessage = (e: MessageEvent) => {
         switch (e.data.command) {
             case EngineCommands.RetrieveBoard:
                 this.localBoard = e.data.board;
-                this.localValidMoves = e.data.validMoves;
+                this.setState({
+                    localHistory: [{
+                        lastMoveFrom: -1,
+                        lastMoveTo: -1,
+                        soundMade: 0,
+                        validMoves: e.data.validMoves,
+                        movesConsidered: [],
+                        moveTime: 0,
+                        searchDepth: 0,
+                        whiteTurn: true
+                    }]
+                }, () => {
+                    if (!this.rendering)
+                        this.startRendering();
+                });
                 break;
             case EngineCommands.AttemptMove:
-                if (e.data.board.length > 0) {
-                    this.localBoard = e.data.board;
-                    this.lastMoveFrom = e.data.from;
-                    this.lastMoveTo = e.data.to;
+            {
+                if (e.data.board != undefined) {
+                    this.localBoard = e.data.board.board;
+                    let validMoves: EvalMove[] = [];
 
-                    if (e.data.draw)
-                        this.localValidMoves = [];
-                    else
-                        this.localValidMoves = e.data.validMoves;
+                    if (!e.data.draw)
+                        validMoves = e.data.validMoves;
 
-                    const checkmate = Object.keys(this.localValidMoves).length == 0;
+                    const checkmate = validMoves.length == 0;
 
-                    if (!checkmate && this.state.playAgainstBot)
+                    if (!checkmate && !e.data.draw && this.state.playAgainstBot)
                         this.botMove();
 
+                    let soundToPlay = 0;
                     if (checkmate || e.data.draw) {
-                        this.playSound(Sounds.GameOver);
+                        soundToPlay = Sounds.GameOver;
+                    } else {
+                        if (e.data.inCheck)
+                            soundToPlay = Sounds.Checked;
+                        else {
+                            if (e.data.captured)
+                                soundToPlay = Sounds.PieceCaptured;
+                            else if (e.data.castled)
+                                soundToPlay = Sounds.Castled;
+                            else
+                                soundToPlay = Sounds.PieceMoved;
+                        }
+                        this.nextBoardToEval = e.data.board;
                     }
-                    else if (e.data.inCheck)
-                        this.playSound(Sounds.Checked);
-                    else {
-                        if (e.data.captured)
-                            this.playSound(Sounds.PieceCaptured);
-                        else if (e.data.castled)
-                            this.playSound(Sounds.Castled);
-                        else
-                            this.playSound(Sounds.PieceMoved);
-                    }
+                    this.playSound(soundToPlay);
+
+                    this.setState({
+                        historyIndex: this.state.historyIndex + 1,
+                        localHistory: this.state.localHistory.concat([{
+                            lastMoveFrom: e.data.from,
+                            lastMoveTo: e.data.to,
+                            soundMade: soundToPlay,
+                            validMoves: validMoves,
+                            movesConsidered: [],
+                            moveTime: 0,
+                            searchDepth: 0,
+                            whiteTurn: e.data.whiteTurn
+                        }])
+                    });
                 } else {
                     this.playSound(Sounds.IllegalMove);
                 }
                 this.draggingIndex = -1;
-
+                
                 break;
+            }
             case EngineCommands.HistoryGoBack:
-                this.localBoard = e.data.board;
-                break;
             case EngineCommands.HistoryGoForward:
-                this.localBoard = e.data.board;
+            case EngineCommands.UndoMove:
+                const entry = this.state.localHistory[e.data.index];
+                
+                if (e.data.index != this.state.historyIndex) {
+                    this.playSound(entry.soundMade); 
+                }
+
+                this.localBoard = e.data.board.board;
+                    
+                this.setState({ historyIndex: e.data.index });
+
+                if (e.data.command == EngineCommands.UndoMove) {
+                    this.setState({ localHistory: this.state.localHistory.slice(0, -1) });
+                    this.nextBoardToEval = e.data.board;
+                }
+
                 break;
             case EngineCommands.BotBestMove:
             case EngineCommands.BotBestMoveIterative:
                 const updateData = () => {
-                    this.localBoard = e.data.board;
-                    this.lastMoveFrom = e.data.from;
-                    this.lastMoveTo = e.data.to;
-                    this.lastTimeTaken = e.data.timeTaken;
+                    this.localBoard = e.data.board.board;
+                    let validMoves: EvalMove[] = [];
     
-                    if (e.data.draw)
-                        this.localValidMoves = [];
-                    else
-                        this.localValidMoves = e.data.validMoves;
+                    if (!e.data.draw)
+                        validMoves = e.data.validMoves;
 
-                    const checkmate = Object.keys(this.localValidMoves).length == 0;
+                    const checkmate = validMoves.length == 0;
     
-                    if (!checkmate && this.state.botMoveAutoplay) {
+                    if (!checkmate && !e.data.draw && this.state.botMoveAutoplay) {
                         this.engineWorker.postMessage({ command: e.data.command });
                     } else {
                         this.setState({ waitingForMove: false });
                     }
                     
+                    let soundToPlay = 0;
                     if (checkmate || e.data.draw) {
-                        this.playSound(Sounds.GameOver);
+                        soundToPlay = Sounds.GameOver;
+                    } else {
+                        if (e.data.inCheck)
+                            soundToPlay = Sounds.Checked;
+                        else {
+                            if (e.data.captured)
+                                soundToPlay = Sounds.PieceCaptured;
+                            else if (e.data.castled)
+                                soundToPlay = Sounds.Castled;
+                            else
+                                soundToPlay = Sounds.PieceMoved;
+                        }
+                        this.nextBoardToEval = e.data.board;
                     }
-                    else if (e.data.inCheck)
-                        this.playSound(Sounds.Checked);
-                    else {
-                        if (e.data.captured)
-                            this.playSound(Sounds.PieceCaptured);
-                        else if (e.data.castled)
-                            this.playSound(Sounds.Castled);
-                        else
-                            this.playSound(Sounds.PieceMoved);
-                    }
+                    this.playSound(soundToPlay);
+
+                    this.setState({
+                        historyIndex: this.state.historyIndex + 1,
+                        localHistory: this.state.localHistory.concat([{
+                            lastMoveFrom: e.data.from,
+                            lastMoveTo: e.data.to,
+                            soundMade: soundToPlay,
+                            validMoves: validMoves,
+                            movesConsidered: e.data.movesFound,
+                            moveTime: e.data.timeTaken,
+                            searchDepth: e.data.depthSearched,
+                            whiteTurn: e.data.whiteTurn
+                        }])
+                    });
                 }
 
-                console.log(e.data.timeTaken);
                 if (e.data.timeTaken < this.botMoveMinTime) { // artifically add a delay if the move was made too quickly
                     setTimeout(updateData, this.botMoveMinTime - e.data.timeTaken);
                 } else {
@@ -240,7 +336,7 @@ export class Board extends React.Component<Props, State> {
 
     startRendering = () => {
         if (!this.canvasRef.current)
-        return; 
+            return; 
 
         const ctx = this.canvasRef.current.getContext('2d');
         if (!ctx)
@@ -261,22 +357,32 @@ export class Board extends React.Component<Props, State> {
         render();
     }
 
+    requestEvaluation = () => {
+        if (this.nextBoardToEval != undefined) {
+            this.evalWorker.postMessage({ command: EvalCommands.UpdateState, board: this.nextBoardToEval });
+            this.evalWorker.postMessage({ command: EvalCommands.Evaluate });
+            this.nextBoardToEval = undefined;
+        }
+    }
+
     componentDidMount = () => {
         this.init();
-        this.startRendering();
         window.addEventListener("keydown", this.onKeyDown);
         window.addEventListener("resize", this.handleResize);
+        this.evalTimeout = setInterval(this.requestEvaluation, 3000);
     }
 
     componentWillUnmount = () => {
         window.cancelAnimationFrame(this.animationFrameId);
         window.removeEventListener("keydown", this.onKeyDown);
         window.removeEventListener("resize", this.handleResize);
+        clearInterval(this.evalTimeout);
     }
 
     drawBoard = (ctx: CanvasRenderingContext2D) => {
         const { boardSize, localBoard, images, relativeMousePos } = this;
         const { cellSize } = this.state;
+        const { lastMoveTo, lastMoveFrom, validMoves } = this.state.localHistory[this.state.historyIndex];
 
         let xPos = 0;
         let yPos = 0;
@@ -292,13 +398,13 @@ export class Board extends React.Component<Props, State> {
                     ctx.fillStyle = '#2c4ed470';
                     ctx.fillRect(xPos, yPos, cellSize, cellSize);
                 }
-                else if (boardIndex == this.lastMoveFrom || boardIndex == this.lastMoveTo) {
+                else if (boardIndex == lastMoveFrom || boardIndex == lastMoveTo) {
                     ctx.fillStyle = '#f57b4270';
                     ctx.fillRect(xPos, yPos, cellSize, cellSize);
                 }
 
                 if (this.state.showValidMoves) {
-                    if (this.localValidMoves.some(e => e.from == this.draggingIndex && e.to == boardIndex)) {
+                    if (validMoves.some(e => e.from == this.draggingIndex && e.to == boardIndex)) {
                         ctx.fillStyle = '#d8f51d70';
                         ctx.fillRect(xPos, yPos, cellSize, cellSize);
                     }
@@ -358,7 +464,7 @@ export class Board extends React.Component<Props, State> {
         this.setState({
             width: width,
             height: height,
-            cellSize: Math.floor(Math.min(width * this.boardScaleFactor, height * this.boardScaleFactor) / 8)
+            cellSize: Math.floor(Math.min(width * this.boardScaleFactor(this.state.width), height * this.boardScaleFactor(this.state.width)) / 8)
         });
     }
 
@@ -392,6 +498,10 @@ export class Board extends React.Component<Props, State> {
         }
     }
 
+    undoLastMove = () => {
+        this.engineWorker.postMessage({ command: EngineCommands.UndoMove });
+    }
+
     getAllMoves = () => {
         //console.log(this.engine.calculateAllPossibleMoves(6));
     }
@@ -407,9 +517,21 @@ export class Board extends React.Component<Props, State> {
         }
     }
 
-    render = () => (
-        <div style={{ display: "flex" }}>
-            <div style={{ display: "flex", flexDirection: "column", marginRight: "20px" }}>
+    debugMoveToText = (move: DebugMoveOutput) => {
+        const from = getPieceNameShort(move.piece) + indexToNotation(move.from);
+        const to = indexToNotation(move.to);
+        return `${from} ${move.capture ? 'x' : "=>"} ${to} (${move.eval > 0 ? '+' : ''}${Math.floor(move.eval)})`;
+    }
+
+    render = () => {
+        if (this.state.historyIndex == -1 || this.state.localHistory.length == 0)
+            return <Typography color="textPrimary">Loading...</Typography>
+
+        const { localHistory, historyIndex } = this.state;
+        const { whiteTurn, moveTime, searchDepth, movesConsidered } = localHistory[historyIndex];
+        return (
+        <div style={{ display: "flex", flexDirection: this.state.width < 900 ? "column" : "row" }}>
+            <div style={{ display: "flex", flexDirection: "column", marginRight: "20px", marginBottom: "50px", minWidth: "250px" }}>
                 <FormControlLabel
                     control={<Checkbox checked={this.state.showNumbers} onChange={() => this.setState({ showNumbers: !this.state.showNumbers })} name="asd" />}
                     label={<Typography color="textPrimary">Show Grid Numbers</Typography>}
@@ -430,18 +552,43 @@ export class Board extends React.Component<Props, State> {
                     control={<Checkbox checked={this.state.botIterative} onChange={() => this.setState({ botIterative: !this.state.botIterative })} />}
                     label={<Typography color="textPrimary">Bot Iterative Deepening</Typography>}
                 />
-                <Button disabled={this.state.waitingForMove} variant="contained" onClick={this.botMove}>Make a bot move</Button>
+                <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.botMove}>Make a bot move</Button>
+                <br />
+                <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.undoLastMove}>Undo last move</Button>
                 <br />
                 <Button variant="contained" onClick={this.printPieceLocations}>Print Piece Locations</Button>
+                <br />
+                <hr style={{ width: "100%" }}/>
+                <br />
+                <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last move color: ${whiteTurn ? "Black" : "White"}`}</Typography>
+                <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last move time: ${Math.floor(moveTime)}ms`}</Typography>
+                <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last move depth: ${searchDepth} ply`}</Typography>
+                <br />
+                <hr style={{ width: "100%" }}/>
+                <br />
+                <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last moves considered:`}</Typography>
+                {
+                    [...movesConsidered].reverse().map((e, i) => {
+                        return (
+                        <Paper key={i} style={{ padding: "5px", marginBottom: i == movesConsidered.length - 1 ? "0" : "10px" }}>
+                            <Typography color="textSecondary">{this.debugMoveToText(e)}</Typography>
+                        </Paper>
+                        );
+                    })
+                }
             </div>
-            <canvas
-                ref={this.canvasRef}
-                onMouseMove={this.onMouseMove}
-                onMouseDown={this.onMouseDown}
-                onMouseUp={this.onMouseUp}
-                width={Math.min(this.state.width * this.boardScaleFactor, this.state.height * this.boardScaleFactor)}
-                height={Math.min(this.state.width * this.boardScaleFactor, this.state.height * this.boardScaleFactor)}
-            />
+            <div style={{ margin: "auto" }}>
+                <canvas
+                    ref={this.canvasRef}
+                    onMouseMove={this.onMouseMove}
+                    onMouseDown={this.onMouseDown}
+                    onMouseUp={this.onMouseUp}
+                    width={this.state.cellSize * 8}
+                    height={this.state.cellSize * 8}
+                />
+                <EvaluationBar evaluation={this.state.currentEval} width={this.state.width} height={this.state.height} />
+            </div>
         </div>
-    );
+        );
+    }
 }

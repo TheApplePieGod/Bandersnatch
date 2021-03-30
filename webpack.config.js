@@ -18,7 +18,7 @@ var config = {
       {
         test: /\.worker\.js$/,
         include: /src/,
-        loader: "worker-loader"
+        loader: "worker-loader",
       },
       {
         test: /\.css$/,
@@ -40,7 +40,7 @@ var config = {
     },
     output: {
       path: path.resolve(__dirname, './dist'),
-      filename: 'bundle.js'
+      filename: '[name].bundle.js'
     },
     plugins: [
       new HtmlWebpackPlugin({

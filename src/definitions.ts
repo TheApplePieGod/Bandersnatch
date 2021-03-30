@@ -29,6 +29,25 @@ export interface EvalMove {
     score: number;
 }
 
+export interface HistoricalBoard {
+    board: number[];
+    whiteTurn: boolean;
+    castleStatus: number;
+    pieceLocations: number[][];
+    moveCount: number;
+    moveRepCount: number;
+    repetitionHistory: bigint[];
+}
+
+export interface DebugMoveOutput {
+    from: number;
+    to: number;
+    piece: number;
+    capture: boolean;
+    data: number;
+    eval: number;
+}
+
 export enum EngineCommands {
     None = 0,
     RetrieveBoard = 1,
@@ -37,7 +56,16 @@ export enum EngineCommands {
     HistoryGoForward = 4,
     BotBestMove = 5,
     BotBestMoveIterative = 6,
-    RetrievePieceLocations = 7
+    RetrievePieceLocations = 7,
+    ReceiveCurrentEval = 8,
+    UpdateEval = 9,
+    UndoMove = 10,
+}
+
+export enum EvalCommands {
+    ReceiveCurrentEval = 0,
+    UpdateState = 1,
+    Evaluate = 2,
 }
 
 export enum Sounds {
@@ -74,6 +102,49 @@ export const getPieceName = (piece: number) => {
         default:
             return "";
     }
+}
+
+export const getPieceNameShort = (piece: number) => {
+    switch (piece) {
+        case Piece.Pawn_W:
+            return "";
+        case Piece.Pawn_B:
+            return "";
+        case Piece.Knight_W:
+            return "N";
+        case Piece.Knight_B:
+            return "n";
+        case Piece.Bishop_W:
+            return "B";
+        case Piece.Bishop_B:
+            return "b";
+        case Piece.Rook_W:
+            return "R";
+        case Piece.Rook_B:
+            return "r";
+        case Piece.Queen_W:
+            return "Q";
+        case Piece.Queen_B:
+            return "q";
+        case Piece.King_W:
+            return "K";
+        case Piece.King_B:
+            return "k";
+        default:
+            return "";
+    }
+}
+
+export const notationToIndex = (rank: number, file: string) => {
+    const y = 8 - rank;
+    const x = file.charCodeAt(0) - 97;
+    return (y * 8) + x;
+}
+
+export const indexToNotation = (index: number) => {
+    const y = Math.floor(index / 8);
+    const x = index % 8;
+    return `${String.fromCharCode(x + 97)}${8 - y}`;
 }
 
 // adapted from https://github.com/SebLague/Chess-AI/blob/main/Assets/Scripts/Core/PieceSquareTable.cs

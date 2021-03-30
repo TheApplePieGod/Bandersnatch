@@ -32,7 +32,7 @@ export const createApplicationTheme = memoizeOne(() => {
 		overrides: {
 			MuiPaper: {
 				root: {
-					backgroundColor: PALETTE_WHITE
+					backgroundColor: PALETTE_LIGHT_BLACK
 				}
 			},
 			// MuiCssBaseline: {

@@ -1,18 +1,8 @@
 import bigInt from "big-integer";
-import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, EvalMove, EngineCommands, kingMiddleGameSquareTable } from "../definitions";
+import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, EvalMove, EngineCommands, kingMiddleGameSquareTable, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex } from "../definitions";
 
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
-
-interface HistoricalBoard {
-    board: number[];
-    whiteTurn: boolean;
-    castleStatus: number;
-    pieceLocations: number[][];
-    moveCount: number;
-    moveRepCount: number;
-    repetitionHistory: bigint[];
-}
 
 interface BoardDelta { // set values to -1 to ignore
     index: number;
@@ -23,14 +13,6 @@ interface BoardDelta { // set values to -1 to ignore
 interface MoveInfo {
     index: number;
     data: number;
-}
-
-interface DebugMoveOutput {
-    from: number;
-    to: number;
-    piece: number;
-    data: number;
-    eval: number;
 }
 
 interface EvaluationData {
@@ -65,6 +47,7 @@ export class Engine {
     evalBestMove: EvalMove = { from: -1, to: -1, data: 0, score: 0 };
     evalBestMoveThisIteration: EvalMove = { from: -1, to: -1, data: 0, score: 0 };
     movesFoundThisTurn: DebugMoveOutput[] = [];
+    movesFoundThisIteration: DebugMoveOutput[] = [];
     repetitionHistory: bigint[] = [];
 
     searchStartTime = 0;
@@ -73,6 +56,7 @@ export class Engine {
     pieceCapturedThisTurn = false;
     castledThisTurn = false;
     timeTakenLastTurn = 0;
+    depthSearchedThisTurn = 0;
 
     pieceLocations: number[][] = [
         [],
@@ -132,6 +116,7 @@ export class Engine {
         //startingFEN = "3r4/3r4/3k4/8/8/3K4/8/8 w - - 0 1"; // one sided rook endgame
         //startingFEN = "6k1/5p2/6p1/8/7p/8/6PP/6K1 b - - 0 0"; // hard pawn endgame
         //startingFEN = "4R3/1k6/1p2P1p1/p7/4r3/1P1r4/1K6/2R5 w - - 0 0"; // 4 rooks endgame
+        //startingFEN = "r2qr1k1/1p1b1pp1/3p1b1p/3p4/p2NPPP1/4B3/PPPQ2P1/3RR1K1 w - - 0 1"; // pawn structure test
 
         // initialize the hash table (0-63)
         const maxVal: bigInt.BigNumber = bigInt(2).pow(64).minus(1);
@@ -166,18 +151,6 @@ export class Engine {
         this.allValidMoves = this.getAllValidMoves();
     }
 
-    notationToIndex = (rank: number, file: string) => {
-        const y = 8 - rank;
-        const x = file.charCodeAt(0) - 97;
-        return (y * this.boardSize) + x;
-    }
-
-    indexToNotation = (index: number) => {
-        const y = Math.floor(index / this.boardSize);
-        const x = index % this.boardSize;
-        return `${String.fromCharCode(x + 97)}${8 - y}`;
-    }
-
     createHistoricalBoard = () => {
         let newPieceLocations: number[][] = [...this.pieceLocations]
         for (let i = 0; i < newPieceLocations.length; i++) {
@@ -208,6 +181,8 @@ export class Engine {
         this.repetitionHistory = [...historicalBoard.repetitionHistory];
         this.boardHash = this.hashBoard();
         this.savedEvaluations = {};
+        this.evalBestMove = {} as EvalMove;
+        this.movesFoundThisTurn = [];
         this.allValidMoves = this.getAllValidMoves();
     }
 
@@ -225,6 +200,15 @@ export class Engine {
             this.historicalIndex++;
             const historicalBoard = this.historicalBoards[this.historicalBoards.length - 1 + this.historicalIndex];
             this.useHistoricalBoard(historicalBoard);
+        }
+    }
+
+    undoMove = () => {
+        if (this.historicalBoards.length > 1 && this.historicalIndex == 0) {
+            this.historicalIndex = 0;
+            const historicalBoard = this.historicalBoards[this.historicalBoards.length - 2];
+            this.useHistoricalBoard(historicalBoard);
+            this.historicalBoards.pop();
         }
     }
 
@@ -300,7 +284,7 @@ export class Engine {
             this.castleStatus |= CastleStatus.BlackQueen;
 
         if (fields[3] != '-')
-            this.enPassantSquare = this.notationToIndex(parseInt(fields[3][1]), fields[3][0]);
+            this.enPassantSquare = notationToIndex(parseInt(fields[3][1]), fields[3][0]);
 
         this.moveRepCount = parseInt(fields[4]);
 
@@ -651,16 +635,6 @@ export class Engine {
         this.allValidMoves = this.getAllValidMoves();
         this.savedEvaluations = {};
 
-        // debug print found moves
-        // for (let i = 0; i < this.movesFoundThisTurn.length; i++) {
-        //     const move = this.movesFoundThisTurn[i];
-        //     const data = getPieceName(move.data);
-        //     const dataString = data != "" ? ` promoting to ${data}` : ""
-        //     console.log(`Move: ${getPieceName(move.piece)} from ${move.from} to ${move.to}${dataString} with eval ${move.eval}`);
-        // }
-        // console.log("DONE")
-        this.movesFoundThisTurn = [];
-
         this.moveCount++;
         this.moveRepCount++;
     }
@@ -1008,6 +982,23 @@ export class Engine {
         return Math.floor(score * 20 * endgameWeight);
     }
 
+    evaluatePawnStructure = (white: boolean) => {
+        let score = 0;
+        let pawnList = this.pieceLocations[white ? Piece.Pawn_W : Piece.Pawn_B];
+        const length = pawnList.length;
+        for (let i = 0; i < length; i++) {
+            if ((white && this.board[pawnList[i] + 8] == Piece.Pawn_W) || (!white && this.board[pawnList[i] - 8] == Piece.Pawn_B)) // check for doubled pawns
+                score -= 2;
+            const protectedLeft = (white && this.board[pawnList[i] + 7] == Piece.Pawn_W) || (!white && this.board[pawnList[i] - 7] != Piece.Pawn_B);
+            const protectedRight = (white && this.board[pawnList[i] + 9] == Piece.Pawn_W) || (!white && this.board[pawnList[i] - 9] != Piece.Pawn_B);
+            if (!protectedLeft && !protectedRight) // isolate
+                score -= 2;
+            else if (protectedRight || protectedLeft)
+                score += 2;
+        }
+        return score * 10;
+    }
+
     evaluate = () => {
         const materialWeight = 1;
         const developmentWeight = 1;
@@ -1033,6 +1024,9 @@ export class Engine {
         const distanceBetween = Math.abs(whiteX - blackX) + Math.abs(whiteY - blackY);
         whiteEval += this.evaluateEndgamePosition(whiteEndgameWeight, blackX, blackY, distanceBetween);
         blackEval += this.evaluateEndgamePosition(blackEndgameWeight, whiteX, whiteY, distanceBetween);
+
+        //whiteEval += this.evaluatePawnStructure(true);
+        //blackEval += this.evaluatePawnStructure(false);
 
         let evaluation = whiteEval - blackEval;
         if (!this.whiteTurn)
@@ -1079,7 +1073,8 @@ export class Engine {
         this.searchStartTime = Date.now();
         const maxDepth = 30;
         let lastCompletedDepth = 0;
-        for (let i = 3; i < maxDepth; i++) {
+
+        for (let i = 3; i <= maxDepth; i++) {
             const iterationStartTime = self.performance.now();
             this.findBestMove(true, i, 0, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
             const iterationEndTime = self.performance.now();
@@ -1087,15 +1082,19 @@ export class Engine {
             if (Date.now() - this.searchStartTime >= this.searchMaxTime) // search aborted so dont update move
                 break;
 
-            console.log(`Finished iteration ${i} in ${Math.floor(iterationEndTime - iterationStartTime)}ms`);
+            //console.log(`Finished iteration ${i} in ${Math.floor(iterationEndTime - iterationStartTime)}ms`);
 
             lastCompletedDepth = i;
+            this.movesFoundThisTurn = this.movesFoundThisIteration;
+            this.movesFoundThisIteration = [];
             this.evalBestMove = this.evalBestMoveThisIteration;
+            ctx.postMessage({ command: EvalCommands.ReceiveCurrentEval, eval: this.whiteTurn ? this.evalBestMove.score : -1 * this.evalBestMove.score });
 
             if (this.evalBestMoveThisIteration.score > 99999999) // mate
                 break;
         }
-        console.log(`Completed: ${lastCompletedDepth}`);
+        
+        this.depthSearchedThisTurn = lastCompletedDepth;
     }
 
     // lower bound: alpha, upper bound: beta
@@ -1179,16 +1178,6 @@ export class Engine {
             this.enPassantSquare = oldEnPassant;
             this.castleStatus = oldCastleStatus;
 
-            if (offset == 0) {
-                this.movesFoundThisTurn.push({
-                    from: validMoves[i].from,
-                    to: validMoves[i].to,
-                    data: validMoves[i].data,
-                    piece: this.board[validMoves[i].from],
-                    eval: evaluation
-                });
-            }
-
             // calc alpha & beta
             if (evaluation >= beta) {
                 this.savedEvaluations[hashString] = { totalMoves: 0, depth: depth, bestMove: bestMoveForThisPosition, type: SavedEvalTypes.Beta, eval: beta };
@@ -1200,6 +1189,14 @@ export class Engine {
                 savingType = SavedEvalTypes.Exact;
 
                 if (offset == 0) {
+                    this.movesFoundThisIteration.push({
+                        from: bestMoveForThisPosition.from,
+                        to: bestMoveForThisPosition.to,
+                        data: bestMoveForThisPosition.data,
+                        piece: this.board[bestMoveForThisPosition.from],
+                        capture: this.board[bestMoveForThisPosition.to] != Piece.Empty,
+                        eval: this.whiteTurn ? evaluation : -1 * evaluation
+                    });
                     this.evalBestMoveThisIteration = bestMoveForThisPosition;
                     this.evalBestMoveThisIteration.score = evaluation;
                 }
@@ -1306,6 +1303,9 @@ export class Engine {
 
         const startTime = self.performance.now();
 
+        this.movesFoundThisIteration = [];
+        this.movesFoundThisTurn = [];
+        
         const lastMove = this.evalBestMove;
         this.findBestMove(false, depth, 0, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
         if (lastMove.to == this.evalBestMoveThisIteration.to && lastMove.from == this.evalBestMoveThisIteration.from) {
@@ -1315,6 +1315,8 @@ export class Engine {
             this.evalBestMove = this.evalBestMoveThisIteration;
         }
 
+        this.movesFoundThisTurn = this.movesFoundThisIteration;
+        this.depthSearchedThisTurn = depth;
         this.castledThisTurn = this.updateCastleStatus(this.evalBestMove.from, this.evalBestMove.to);
         this.pieceCapturedThisTurn = this.board[this.evalBestMove.to] != Piece.Empty;
         this.forceMakeMove(this.evalBestMove.from, { index: this.evalBestMove.to, data: this.evalBestMove.data }, true);
@@ -1331,6 +1333,9 @@ export class Engine {
             return;
 
         const startTime = self.performance.now();
+
+        this.movesFoundThisIteration = [];
+        this.movesFoundThisTurn = [];
 
         const lastMove = {...this.evalBestMove};
         engine.findBestMoveWithIterativeDeepening();
@@ -1396,7 +1401,8 @@ ctx.addEventListener("message", (e) => {
                 command: e.data.command,
                 from: e.data.fromIndex,
                 to: e.data.toIndex,
-                board: result ? engine.board : [],
+                whiteTurn: engine.whiteTurn,
+                board: result ? engine.historicalBoards[engine.historicalBoards.length - 1] : undefined,
                 validMoves: engine.allValidMoves,
                 inCheck: inCheck,
                 captured: engine.pieceCapturedThisTurn,
@@ -1406,13 +1412,40 @@ ctx.addEventListener("message", (e) => {
             break;
         }
         case EngineCommands.HistoryGoBack:
+        {
             engine.stepBack();
-            ctx.postMessage({ command: e.data.command, board: engine.board });
+            const index = engine.historicalBoards.length - 1 + engine.historicalIndex;
+            ctx.postMessage({
+                command: e.data.command,
+                board: engine.historicalBoards[index],
+                index: index
+            });
             break;
+        }
         case EngineCommands.HistoryGoForward:
+        {
             engine.stepForward();
-            ctx.postMessage({ command: e.data.command, board: engine.board });
+            const index = engine.historicalBoards.length - 1 + engine.historicalIndex;
+            ctx.postMessage({
+                command: e.data.command,
+                board: engine.historicalBoards[index],
+                index: index
+            });
             break;
+        }
+        case EngineCommands.UndoMove:
+        {
+            if (engine.historicalIndex == 0) {
+                engine.undoMove();
+                const index = engine.historicalBoards.length - 1;
+                ctx.postMessage({
+                    command: e.data.command,
+                    board: engine.historicalBoards[index],
+                    index: index
+                });
+            }
+            break;
+        }
         case EngineCommands.BotBestMove:
         {
             engine.evalBotMove(6);
@@ -1422,7 +1455,10 @@ ctx.addEventListener("message", (e) => {
                 from: engine.evalBestMove.from,
                 to: engine.evalBestMove.to,
                 timeTaken: engine.timeTakenLastTurn,
-                board: engine.board,
+                depthSearched: engine.depthSearchedThisTurn,
+                movesFound: engine.movesFoundThisTurn,
+                whiteTurn: engine.whiteTurn,
+                board: engine.historicalBoards[engine.historicalBoards.length - 1],
                 validMoves: engine.allValidMoves,
                 inCheck: inCheck,
                 captured: engine.pieceCapturedThisTurn,
@@ -1440,7 +1476,10 @@ ctx.addEventListener("message", (e) => {
                 from: engine.evalBestMove.from,
                 to: engine.evalBestMove.to,
                 timeTaken: engine.timeTakenLastTurn,
-                board: engine.board,
+                depthSearched: engine.depthSearchedThisTurn,
+                movesFound: engine.movesFoundThisTurn,
+                whiteTurn: engine.whiteTurn,
+                board: engine.historicalBoards[engine.historicalBoards.length - 1],
                 validMoves: engine.allValidMoves,
                 inCheck: inCheck,
                 captured: engine.pieceCapturedThisTurn,
