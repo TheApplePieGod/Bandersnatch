@@ -415,11 +415,20 @@ export class Board extends React.Component<Props, State> {
                         if (boardIndex != this.draggingIndex)
                             ctx.drawImage(images[piece], xPos, yPos, cellSize, cellSize);
                 }
+
+                const fontSize = cellSize * 0.25;
+                ctx.fillStyle = '#ff000d';
+                ctx.font = `${fontSize}px arial`;
                 if (this.state.showNumbers) {
-                    ctx.fillStyle = '#ff000d';
-                    ctx.font = `${this.state.cellSize * 0.25}px arial`;
                     ctx.fillText(boardIndex.toString(), xPos, yPos + cellSize);
                 }
+                if (x == 0) {
+                    ctx.fillText(`${8 - y}`, xPos, yPos + fontSize);
+                }
+                if (y == 7) {
+                    ctx.fillText(`${String.fromCharCode(x + 97)}`, xPos + cellSize - (fontSize * 0.6), yPos + cellSize - (fontSize * 0.2));
+                }
+
                 xPos += cellSize;
             }
             yPos += cellSize;
