@@ -62,10 +62,13 @@ export class Engine {
 
     zobristHashTable: bigint[][] = [];
     savedEvaluations: Record<string, EvaluationData> = {};
-    savedValidMoves: Record<string, EvalMove[]> = {};
     evalBestMove: EvalMove = { from: -1, to: -1, data: 0, score: 0 };
+    evalBestMoveThisIteration: EvalMove = { from: -1, to: -1, data: 0, score: 0 };
     movesFoundThisTurn: DebugMoveOutput[] = [];
     repetitionHistory: bigint[] = [];
+
+    searchStartTime = 0;
+    searchMaxTime = 3000;
 
     pieceCapturedThisTurn = false;
     castledThisTurn = false;
@@ -202,7 +205,6 @@ export class Engine {
         this.repetitionHistory = [...historicalBoard.repetitionHistory];
         this.boardHash = this.hashBoard();
         this.savedEvaluations = {};
-        this.savedValidMoves = {};
         this.allValidMoves = this.getAllValidMoves();
     }
 
@@ -572,11 +574,6 @@ export class Engine {
     }
 
     getAllValidMoves = (baseAttackedSquares: number[] = []) => {
-        const hashString = this.boardHash.toString();
-        if (hashString in this.savedValidMoves) {
-            return this.savedValidMoves[hashString];
-        }
-
         let allValid: EvalMove[] = [];
         if (baseAttackedSquares.length == 0)
             baseAttackedSquares = this.getAttackedSquares(this.whiteTurn, -1);
@@ -600,7 +597,7 @@ export class Engine {
                 const isPinned = this.pinnedPieces.includes(location);
                 const validLength = valid.length;
                 for (let k = 0; k < validLength; k++) {
-                    if (inCheck || isPinned || i == Piece.King_W || i == Piece.King_B) { // more optimizations can definitely be made here
+                    if (inCheck || isPinned || i == Piece.King_W || i == Piece.King_B) { // more optimizations here?
                     //if (true) {
                         const pieceBackup = this.board[valid[k]];
                         const backup2 = this.board[location];
@@ -636,7 +633,6 @@ export class Engine {
             }
         }
 
-        this.savedValidMoves[hashString] = allValid;
         return allValid;
     }
 
@@ -647,7 +643,6 @@ export class Engine {
         this.boardDelta = [];
         this.allValidMoves = this.getAllValidMoves();
         this.savedEvaluations = {};
-        this.savedValidMoves = {};
 
         // debug print found moves
         // for (let i = 0; i < this.movesFoundThisTurn.length; i++) {
@@ -865,6 +860,14 @@ export class Engine {
         return newHash;
     }
 
+    getPieceCount = () => {
+        let pieceCount = 0;
+        for (let i = 1; i < this.pieceLocations.length; i++) {
+            pieceCount += this.pieceLocations[i].length;
+        }
+        return pieceCount;
+    }
+
     checkForDraw = () => {
         if (this.moveRepCount >= 50) {
             //console.log("Draw by 50 rep")
@@ -874,11 +877,7 @@ export class Engine {
         if (!this.whiteTurn) // white's last move cannot be a draw
             return false;
 
-        let pieceCount = 0;
-        for (let i = 1; i < this.pieceLocations.length; i++) {
-            pieceCount += this.pieceLocations[i].length;
-        }
-        if (pieceCount == 2) // only the kings are left
+        if (this.getPieceCount() == 2) // only the kings are left
             return true;
 
         let count = 0;
@@ -1068,8 +1067,34 @@ export class Engine {
         return value;
     }
 
+    findBestMoveWithIterativeDeepening = () => {
+        this.searchStartTime = Date.now();
+        const maxDepth = 30;
+        let lastCompletedDepth = 0;
+        for (let i = 3; i < maxDepth; i++) {
+            const iterationStartTime = self.performance.now();
+            this.findBestMove(true, i, 0, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+            const iterationEndTime = self.performance.now();
+
+            if (Date.now() - this.searchStartTime >= this.searchMaxTime) // search aborted so dont update move
+                break;
+
+            console.log(`Finished iteration ${i} in ${Math.floor(iterationEndTime - iterationStartTime)}ms`);
+
+            lastCompletedDepth = i;
+            this.evalBestMove = this.evalBestMoveThisIteration;
+
+            if (this.evalBestMoveThisIteration.score > 99999999) // mate
+                break;
+        }
+        console.log(`Completed: ${lastCompletedDepth}`);
+    }
+
     // lower bound: alpha, upper bound: beta
-    findBestMove = (depth: number, offset: number, alpha: number, beta: number) => {
+    findBestMove = (canCancel: boolean, depth: number, offset: number, alpha: number, beta: number) => {
+        if (canCancel && Date.now() - this.searchStartTime >= this.searchMaxTime) // abort search
+            return 0;
+        
         if (depth <= 0)
             return this.evaluate();
 
@@ -1100,8 +1125,10 @@ export class Engine {
                     shouldReturn = true;
             }
             if (shouldReturn) {
-                if (offset == 0)
-                    this.evalBestMove = this.savedEvaluations[hashString].bestMove;
+                if (offset == 0) {
+                    this.evalBestMoveThisIteration = this.savedEvaluations[hashString].bestMove;
+                    this.evalBestMoveThisIteration.score = this.savedEvaluations[hashString].eval;
+                }
                 return finalScore;
             }
         }
@@ -1109,7 +1136,7 @@ export class Engine {
         const attackedSquares = this.getAttackedSquares(this.whiteTurn, -1);
         const validMoves = this.getAllValidMoves(attackedSquares);
         if (validMoves.length == 0) { // either checkmate or stalemate
-            if (this.isInCheck(this.whiteTurn))
+            if (this.isInCheckAttackedSquares(this.whiteTurn, attackedSquares))
                 return Number.MIN_SAFE_INTEGER + offset; // checkmate, worst possible move
             else
                 return 0; // stalemate, draw
@@ -1132,7 +1159,7 @@ export class Engine {
             this.boardHash = this.updateHash(deltas, startingHash, oldEnPassant, oldCastleStatus);
 
             // calculate evaluation (one player's upper bound is the other's lower bound)
-            let evaluation = -1 * this.findBestMove(depth - 1, offset + 1, -beta, -alpha);
+            let evaluation = -1 * this.findBestMove(canCancel, depth - 1, offset + 1, -beta, -alpha);
 
             // unmake the move
             this.unmakeMove(deltas);
@@ -1161,7 +1188,8 @@ export class Engine {
                 savingType = SavedEvalTypes.Exact;
 
                 if (offset == 0) {
-                    this.evalBestMove = bestMoveForThisPosition;
+                    this.evalBestMoveThisIteration = bestMoveForThisPosition;
+                    this.evalBestMoveThisIteration.score = evaluation;
                 }
             }
         }
@@ -1225,8 +1253,34 @@ export class Engine {
 
         const startTime = self.performance.now();
 
+        const lastMove = this.evalBestMove;
+        this.findBestMove(false, depth, 0, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+        if (lastMove.to == this.evalBestMoveThisIteration.to && lastMove.from == this.evalBestMoveThisIteration.from) {
+            console.log("Attempting to make the same move: " + lastMove.toString());
+            return;
+        } else {
+            this.evalBestMove = this.evalBestMoveThisIteration;
+        }
+
+        this.castledThisTurn = this.updateCastleStatus(this.evalBestMove.from, this.evalBestMove.to);
+        this.pieceCapturedThisTurn = this.board[this.evalBestMove.to] != Piece.Empty;
+        this.forceMakeMove(this.evalBestMove.from, { index: this.evalBestMove.to, data: this.evalBestMove.data }, true);
+
+        const endTime = self.performance.now();
+        this.timeTakenLastTurn = endTime - startTime; // ms
+    }
+
+    evalBotMoveIterative = () => {
+        if (this.historicalIndex != 0)
+            return;
+
+        if (this.checkForDraw())
+            return;
+
+        const startTime = self.performance.now();
+
         const lastMove = {...this.evalBestMove};
-        this.findBestMove(depth, 0, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+        engine.findBestMoveWithIterativeDeepening();
         if (lastMove.to == this.evalBestMove.to && lastMove.from == this.evalBestMove.from) {
             console.log("Attempting to make the same move: " + lastMove.toString());
             return;
@@ -1309,6 +1363,24 @@ ctx.addEventListener("message", (e) => {
         case EngineCommands.BotBestMove:
         {
             engine.evalBotMove(6);
+            const inCheck = engine.isInCheck(engine.whiteTurn);
+            ctx.postMessage({
+                command: e.data.command,
+                from: engine.evalBestMove.from,
+                to: engine.evalBestMove.to,
+                timeTaken: engine.timeTakenLastTurn,
+                board: engine.board,
+                validMoves: engine.allValidMoves,
+                inCheck: inCheck,
+                captured: engine.pieceCapturedThisTurn,
+                castled: engine.castledThisTurn,
+                draw: engine.checkForDraw()
+            });
+            break;
+        }
+        case EngineCommands.BotBestMoveIterative:
+        {
+            engine.evalBotMoveIterative();
             const inCheck = engine.isInCheck(engine.whiteTurn);
             ctx.postMessage({
                 command: e.data.command,

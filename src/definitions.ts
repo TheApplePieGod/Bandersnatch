@@ -36,7 +36,8 @@ export enum EngineCommands {
     HistoryGoBack = 3,
     HistoryGoForward = 4,
     BotBestMove = 5,
-    RetrievePieceLocations = 6
+    BotBestMoveIterative = 6,
+    RetrievePieceLocations = 7
 }
 
 export enum Sounds {

@@ -17,6 +17,7 @@ interface State {
     waitingForMove: boolean;
     botMoveAutoplay: boolean;
     playAgainstBot: boolean;
+    botIterative: boolean;
 }
 
 export class Board extends React.Component<Props, State> {
@@ -33,7 +34,7 @@ export class Board extends React.Component<Props, State> {
     relativeMousePos = { x: 0, y: 0 };
     boardScaleFactor = 0.9;
     boardSize = 8;
-    botMoveMinTime = 100;
+    botMoveMinTime = 1000;
     constructor(props: Props) {
         super(props);
         this.canvasRef = React.createRef<HTMLCanvasElement>();
@@ -47,7 +48,8 @@ export class Board extends React.Component<Props, State> {
             showValidMoves: false,
             waitingForMove: false,
             botMoveAutoplay: false,
-            playAgainstBot: false
+            playAgainstBot: false,
+            botIterative: true,
         };
 
         this.engineWorker.onmessage = this.handleMessage;
@@ -150,6 +152,7 @@ export class Board extends React.Component<Props, State> {
                 this.localBoard = e.data.board;
                 break;
             case EngineCommands.BotBestMove:
+            case EngineCommands.BotBestMoveIterative:
                 const updateData = () => {
                     this.localBoard = e.data.board;
                     this.lastMoveFrom = e.data.from;
@@ -164,7 +167,7 @@ export class Board extends React.Component<Props, State> {
                     const checkmate = Object.keys(this.localValidMoves).length == 0;
     
                     if (!checkmate && this.state.botMoveAutoplay) {
-                        this.engineWorker.postMessage({ command: EngineCommands.BotBestMove });
+                        this.engineWorker.postMessage({ command: e.data.command });
                     } else {
                         this.setState({ waitingForMove: false });
                     }
@@ -392,7 +395,7 @@ export class Board extends React.Component<Props, State> {
     botMove = () => {
         if (!this.state.waitingForMove) {
             this.setState({ waitingForMove: true });
-            this.engineWorker.postMessage({ command: EngineCommands.BotBestMove });
+            this.engineWorker.postMessage({ command: this.state.botIterative ? EngineCommands.BotBestMoveIterative : EngineCommands.BotBestMove });
         }
     }
 
@@ -414,6 +417,10 @@ export class Board extends React.Component<Props, State> {
                 <FormControlLabel
                     control={<Checkbox checked={this.state.playAgainstBot} onChange={() => this.setState({ playAgainstBot: !this.state.playAgainstBot })} />}
                     label={<Typography color="textPrimary">Play Against Bot</Typography>}
+                />
+                <FormControlLabel
+                    control={<Checkbox checked={this.state.botIterative} onChange={() => this.setState({ botIterative: !this.state.botIterative })} />}
+                    label={<Typography color="textPrimary">Bot Iterative Deepening</Typography>}
                 />
                 <Button disabled={this.state.waitingForMove} variant="contained" onClick={this.botMove}>Make a bot move</Button>
                 <Button variant="contained" onClick={this.printPieceLocations}>Print Piece Locations</Button>
