@@ -1,5 +1,5 @@
 import bigInt from "big-integer";
-import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, EvalMove, EngineCommands } from "../definitions";
+import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, EvalMove, EngineCommands, kingMiddleGameSquareTable } from "../definitions";
 
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
@@ -9,6 +9,9 @@ interface HistoricalBoard {
     whiteTurn: boolean;
     castleStatus: number;
     pieceLocations: number[][];
+    moveCount: number;
+    moveRepCount: number;
+    repetitionHistory: bigint[];
 }
 
 interface BoardDelta { // set values to -1 to ignore
@@ -85,6 +88,7 @@ export class Engine {
     ]
 
     moveCount = 0;
+    moveRepCount = 0;
     pinnedPieces: number[] = [];
     historicalBoards: HistoricalBoard[] = [];
     historicalIndex = 0;
@@ -92,6 +96,7 @@ export class Engine {
     castleStatus = 0;
     enPassantSquare = -1;
     allValidMoves: EvalMove[] = [];
+
     fenToPieceDict: Record<string, number> = {
         'K': Piece.King_W,
         'Q': Piece.Queen_W,
@@ -106,6 +111,9 @@ export class Engine {
         'n': Piece.Knight_B,
         'p': Piece.Pawn_B
     }
+    startingMaterialWithoutPawns = (Value.Bishop * 2) + (Value.Knight * 2) + (Value.Rook * 2) + Value.Queen;
+    startingMaterial = (Value.Pawn * 8) + this.startingMaterialWithoutPawns;
+    endgameMaterialThreshold = (Value.Rook * 2) + (Value.Bishop) + (Value.Knight);
 
     constructor() {
         this.board = [];
@@ -115,10 +123,9 @@ export class Engine {
         //startingFEN = "1rk4r/1pp3pp/p2b4/1n3P2/6P1/2nK4/7P/8 b - - 0 1"; // promotion break
         //startingFEN = "r3kb1r/ppp1pppp/2n5/6B1/4P1n1/2N5/PPP2PPP/R2K2NR w - - 0 1"; // fork
         //startingFEN = "rr2kb2/ppp1pppp/2n3n1/7B/B7/2N5/PPP2PPP/R2KR1N1 b - - 0 1"; // pins
-        //startingFEN = "2N5/4k2p/p3pp2/6p1/8/P4n1P/4r3/1K1R4 b - - 0 1"; // threefold
-        this.board = this.parseFEN(startingFEN);
-        this.historicalBoards.push(this.createHistoricalBoard());
-        this.allValidMoves = this.getAllValidMoves();
+        //startingFEN = "2N5/4k2p/p3pp2/6p1/8/P4n1P/4r3/1K1R4 b - - 0 1"; // threefold test
+        //startingFEN = "8/8/1N4R1/4p3/2P5/2k2n1P/5r2/2K5 w - - 0 1"; // real threefold
+        //startingFEN = "3r4/3r4/3k4/8/8/3K4/8/8 w - - 0 1"; // one sided rook endgame
 
         // initialize the hash table (0-63)
         const maxVal: bigInt.BigNumber = bigInt(2).pow(64).minus(1);
@@ -146,7 +153,23 @@ export class Engine {
         }
         this.zobristHashTable.push(enPassantSquares);
 
+        this.board = this.parseFEN(startingFEN);
         this.boardHash = this.hashBoard();
+        this.repetitionHistory.push(this.boardHash);
+        this.historicalBoards.push(this.createHistoricalBoard());
+        this.allValidMoves = this.getAllValidMoves();
+    }
+
+    notationToIndex = (rank: number, file: string) => {
+        const y = 8 - rank;
+        const x = file.charCodeAt(0) - 97;
+        return (y * this.boardSize) + x;
+    }
+
+    indexToNotation = (index: number) => {
+        const y = Math.floor(index / this.boardSize);
+        const x = index % this.boardSize;
+        return `${String.fromCharCode(x + 97)}${8 - y}`;
     }
 
     createHistoricalBoard = () => {
@@ -160,6 +183,9 @@ export class Engine {
             whiteTurn: this.whiteTurn,
             castleStatus: this.castleStatus,
             pieceLocations: newPieceLocations,
+            moveCount: this.moveCount,
+            moveRepCount: this.moveRepCount,
+            repetitionHistory: [...this.repetitionHistory]
         });
     }
 
@@ -171,6 +197,10 @@ export class Engine {
         for (let i = 0; i < this.pieceLocations.length; i++) {
             this.pieceLocations[i] = [...this.pieceLocations[i]]
         }
+        this.moveCount = historicalBoard.moveCount;
+        this.moveRepCount = historicalBoard.moveRepCount;
+        this.repetitionHistory = [...historicalBoard.repetitionHistory];
+        this.boardHash = this.hashBoard();
         this.savedEvaluations = {};
         this.savedValidMoves = {};
         this.allValidMoves = this.getAllValidMoves();
@@ -263,6 +293,13 @@ export class Engine {
             this.castleStatus |= CastleStatus.BlackKing;
         if (fields[2].includes('q'))
             this.castleStatus |= CastleStatus.BlackQueen;
+
+        if (fields[3] != '-')
+            this.enPassantSquare = this.notationToIndex(parseInt(fields[3][1]), fields[3][0]);
+
+        this.moveRepCount = parseInt(fields[4]);
+
+        this.moveCount = parseInt(fields[5]) * 2 - 2;
 
         return board;
     }
@@ -622,8 +659,8 @@ export class Engine {
         // console.log("DONE")
         this.movesFoundThisTurn = [];
 
-        //console.log(`Finished move ${this.moveCount}`)
         this.moveCount++;
+        this.moveRepCount++;
     }
 
     forceMakeMove = (fromIndex: number, move: MoveInfo, finishTurn: boolean) => {
@@ -691,8 +728,9 @@ export class Engine {
             this.finishTurn();
 
             // update board repetition history
-            if (movingPiece == Piece.Pawn_W || movingPiece == Piece.Pawn_W || capturedPiece != Piece.Empty) { // repetitions not possible with these moves
+            if (movingPiece == Piece.Pawn_W || movingPiece == Piece.Pawn_B || capturedPiece != Piece.Empty) { // repetitions not possible with these moves
                 this.repetitionHistory = [];
+                this.moveRepCount = 0;
             } else {
                 this.repetitionHistory.push(this.boardHash);
             }
@@ -720,10 +758,6 @@ export class Engine {
 
             if (deltas[i].index != -1)
                 this.board[deltas[i].index] = deltas[i].piece;
-
-            // if (deltas[i].castleStatus != -1) {
-            //     this.castleStatus = deltas[i].castleStatus;
-            // }
         }
     }
 
@@ -831,6 +865,35 @@ export class Engine {
         return newHash;
     }
 
+    checkForDraw = () => {
+        if (this.moveRepCount >= 50) {
+            //console.log("Draw by 50 rep")
+            return true;
+        }
+
+        if (!this.whiteTurn) // white's last move cannot be a draw
+            return false;
+
+        let pieceCount = 0;
+        for (let i = 1; i < this.pieceLocations.length; i++) {
+            pieceCount += this.pieceLocations[i].length;
+        }
+        if (pieceCount == 2) // only the kings are left
+            return true;
+
+        let count = 0;
+        for (let i = 0; i < this.repetitionHistory.length; i++) {
+            if (this.repetitionHistory[i] == this.boardHash)
+                count++;
+            if (count == 3) {
+                //console.log("Draw by 3 rep")
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     predictAndOrderMoves = (moves: EvalMove[], attackedSquares: number[]) => {
         const movesLength = moves.length;
         for (let i = 0; i < movesLength; i++) {
@@ -844,9 +907,9 @@ export class Engine {
             }
 
             // deprioritize moving into attacked squares
-            if (attackedSquares.includes(moves[i].to)) {
-                score -= this.getPieceValue(movingPiece);
-            }
+            // if (attackedSquares.includes(moves[i].to)) {
+            //     score -= this.getPieceValue(movingPiece);
+            // }
 
             // score promotion moves
             if (movingPiece == Piece.Pawn_W || movingPiece == Piece.Pawn_B) {
@@ -900,7 +963,7 @@ export class Engine {
         return value;
     }
 
-    evaluateSquareTables = (white: boolean) => {
+    evaluateSquareTables = (white: boolean, endgameWeight: number) => {
         let value = 0;
 
         // ugly
@@ -910,29 +973,59 @@ export class Engine {
             value += this.evaluateSquareTable(Piece.Knight_W, knightSquareTable, white);
             value += this.evaluateSquareTable(Piece.Bishop_W, bishopSquareTable, white);
             value += this.evaluateSquareTable(Piece.Queen_W, queenSquareTable, white);
+            let kingMiddlegameValue = this.evaluateSquareTable(Piece.King_W, kingMiddleGameSquareTable, white);
+            value += Math.floor(kingMiddlegameValue * (1 - endgameWeight));
         } else {
             value += this.evaluateSquareTable(Piece.Pawn_B, pawnSquareTable, white);
             value += this.evaluateSquareTable(Piece.Rook_B, rookSquareTable, white);
             value += this.evaluateSquareTable(Piece.Knight_B, knightSquareTable, white);
             value += this.evaluateSquareTable(Piece.Bishop_B, bishopSquareTable, white);
             value += this.evaluateSquareTable(Piece.Queen_B, queenSquareTable, white);
+            let kingMiddlegameValue = this.evaluateSquareTable(Piece.King_B, kingMiddleGameSquareTable, white);
+            value += Math.floor(kingMiddlegameValue * (1 - endgameWeight));
         }
 
         return value;
     }
 
+    evaluateEndgamePosition = (endgameWeight: number, white: boolean, friendlyKingX: number, friendlyKingY: number, opponentKingX: number, opponentKingY: number, distance: number) => {
+        let score = 0;
+
+        // try to push the enemy king into the corner
+        const distToCenter = Math.abs(opponentKingX - 4) + Math.abs(opponentKingY - 4);
+        score += distToCenter;
+
+        // try and move kings together
+        score += 14 - distance;
+
+        return Math.floor(score * 10 * endgameWeight);
+    }
+
     evaluate = () => {
-        const materialWeight = 1;
+        const materialWeight = 2;
         const developmentWeight = 1;
 
         const whiteMaterial = this.countMaterial(true);
         const blackMaterial = this.countMaterial(false);
+        const whiteMaterialWithoutPawns = whiteMaterial - (this.pieceLocations[Piece.Pawn_W].length * this.getPieceValue(Piece.Pawn_W)); 
+        const blackMaterialWithoutPawns = blackMaterial - (this.pieceLocations[Piece.Pawn_B].length * this.getPieceValue(Piece.Pawn_B)); 
+
+        const whiteEndgameWeight = 1 - Math.min(1, whiteMaterialWithoutPawns / this.endgameMaterialThreshold);
+        const blackEndgameWeight = 1 - Math.min(1, blackMaterialWithoutPawns / this.endgameMaterialThreshold);
 
         let whiteEval = whiteMaterial * materialWeight;
         let blackEval = blackMaterial * materialWeight;
         
-        whiteEval += Math.floor(this.evaluateSquareTables(true) * developmentWeight);
-        blackEval += Math.floor(this.evaluateSquareTables(false) * developmentWeight);
+        whiteEval += Math.floor(this.evaluateSquareTables(true, whiteEndgameWeight) * developmentWeight);
+        blackEval += Math.floor(this.evaluateSquareTables(false, blackEndgameWeight) * developmentWeight);
+
+        const whiteX = this.pieceLocations[Piece.King_W][0] % this.boardSize;
+        const whiteY = Math.floor(this.pieceLocations[Piece.King_W][0] / this.boardSize);
+        const blackX = this.pieceLocations[Piece.King_B][0] % this.boardSize;
+        const blackY = Math.floor(this.pieceLocations[Piece.King_B][0] / this.boardSize);
+        const distanceBetween = Math.abs(whiteX - blackX) + Math.abs(whiteY - blackY);
+        whiteEval += this.evaluateEndgamePosition(whiteEndgameWeight, true, whiteX, whiteY, blackX, blackY, distanceBetween);
+        blackEval += this.evaluateEndgamePosition(blackEndgameWeight, false, blackX, blackY, whiteX, whiteY, distanceBetween);
 
         let evaluation = whiteEval - blackEval;
         if (!this.whiteTurn)
@@ -1127,6 +1220,9 @@ export class Engine {
         if (this.historicalIndex != 0)
             return;
 
+        if (this.checkForDraw())
+            return;
+
         const startTime = self.performance.now();
 
         const lastMove = {...this.evalBestMove};
@@ -1151,6 +1247,9 @@ export class Engine {
         if (this.historicalIndex != 0)
             return false;
 
+        if (this.checkForDraw())
+            return false;
+
         // no-op moves
         if (fromIndex == toIndex || movingPiece == Piece.Empty)
             return false;
@@ -1166,6 +1265,7 @@ export class Engine {
         this.castledThisTurn = this.updateCastleStatus(fromIndex, toIndex);
         this.pieceCapturedThisTurn = this.board[toIndex] != Piece.Empty; // todo: en passant capture noise doesn't work with this
         this.forceMakeMove(fromIndex, { index: toIndex, data: this.whiteTurn ? Piece.Queen_W : Piece.Queen_B }, true); // auto promote to queen when possible
+
         return true;
     }
 }
@@ -1193,7 +1293,8 @@ ctx.addEventListener("message", (e) => {
                 validMoves: engine.allValidMoves,
                 inCheck: inCheck,
                 captured: engine.pieceCapturedThisTurn,
-                castled: engine.castledThisTurn
+                castled: engine.castledThisTurn,
+                draw: engine.checkForDraw()
             });
             break;
         }
@@ -1218,7 +1319,8 @@ ctx.addEventListener("message", (e) => {
                 validMoves: engine.allValidMoves,
                 inCheck: inCheck,
                 captured: engine.pieceCapturedThisTurn,
-                castled: engine.castledThisTurn
+                castled: engine.castledThisTurn,
+                draw: engine.checkForDraw()
             });
             break;
         }

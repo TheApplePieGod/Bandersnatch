@@ -33,6 +33,7 @@ export class Board extends React.Component<Props, State> {
     relativeMousePos = { x: 0, y: 0 };
     boardScaleFactor = 0.9;
     boardSize = 8;
+    botMoveMinTime = 100;
     constructor(props: Props) {
         super(props);
         this.canvasRef = React.createRef<HTMLCanvasElement>();
@@ -110,16 +111,20 @@ export class Board extends React.Component<Props, State> {
             case EngineCommands.AttemptMove:
                 if (e.data.board.length > 0) {
                     this.localBoard = e.data.board;
-                    this.localValidMoves = e.data.validMoves;
                     this.lastMoveFrom = e.data.from;
                     this.lastMoveTo = e.data.to;
+
+                    if (e.data.draw)
+                        this.localValidMoves = [];
+                    else
+                        this.localValidMoves = e.data.validMoves;
 
                     const checkmate = Object.keys(this.localValidMoves).length == 0;
 
                     if (!checkmate && this.state.playAgainstBot)
                         this.botMove();
 
-                    if (checkmate) {
+                    if (checkmate || e.data.draw) {
                         this.playSound(Sounds.GameOver);
                     }
                     else if (e.data.inCheck)
@@ -147,11 +152,15 @@ export class Board extends React.Component<Props, State> {
             case EngineCommands.BotBestMove:
                 const updateData = () => {
                     this.localBoard = e.data.board;
-                    this.localValidMoves = e.data.validMoves;
                     this.lastMoveFrom = e.data.from;
                     this.lastMoveTo = e.data.to;
                     this.lastTimeTaken = e.data.timeTaken;
     
+                    if (e.data.draw)
+                        this.localValidMoves = [];
+                    else
+                        this.localValidMoves = e.data.validMoves;
+
                     const checkmate = Object.keys(this.localValidMoves).length == 0;
     
                     if (!checkmate && this.state.botMoveAutoplay) {
@@ -160,7 +169,7 @@ export class Board extends React.Component<Props, State> {
                         this.setState({ waitingForMove: false });
                     }
                     
-                    if (checkmate) {
+                    if (checkmate || e.data.draw) {
                         this.playSound(Sounds.GameOver);
                     }
                     else if (e.data.inCheck)
@@ -176,8 +185,8 @@ export class Board extends React.Component<Props, State> {
                 }
 
                 console.log(e.data.timeTaken);
-                if (e.data.timeTaken < 1000) { // artifically add a delay if the move was made too quickly
-                    setTimeout(updateData, 1000 - e.data.timeTaken);
+                if (e.data.timeTaken < this.botMoveMinTime) { // artifically add a delay if the move was made too quickly
+                    setTimeout(updateData, this.botMoveMinTime - e.data.timeTaken);
                 } else {
                     updateData();
                 }
@@ -364,10 +373,12 @@ export class Board extends React.Component<Props, State> {
     }
 
     onKeyDown = (e: KeyboardEvent) => {
-        if (e.key == "ArrowLeft")
-            this.engineWorker.postMessage({ command: EngineCommands.HistoryGoBack });
-        else if (e.key == "ArrowRight")
-            this.engineWorker.postMessage({ command: EngineCommands.HistoryGoForward });
+        if (!this.state.waitingForMove) {
+            if (e.key == "ArrowLeft")
+                this.engineWorker.postMessage({ command: EngineCommands.HistoryGoBack });
+            else if (e.key == "ArrowRight")
+                this.engineWorker.postMessage({ command: EngineCommands.HistoryGoForward });
+        }
     }
 
     getAllMoves = () => {
