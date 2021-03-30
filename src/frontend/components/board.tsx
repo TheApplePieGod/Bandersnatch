@@ -468,6 +468,15 @@ export class Board extends React.Component<Props, State> {
         this.relativeMousePos.y = Math.round(e.clientY - cRect.top);
     }
 
+    onTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+        if (!this.canvasRef.current)
+            return;
+
+        const cRect = this.canvasRef.current.getBoundingClientRect();
+        this.relativeMousePos.x = Math.round(e.touches[0].pageX - this.canvasRef.current.offsetLeft);
+        this.relativeMousePos.y = Math.round(e.touches[0].pageY - this.canvasRef.current.offsetTop);
+    }
+
     handleResize = () => {
         const { innerWidth: width, innerHeight: height } = window;
         this.setState({
@@ -481,6 +490,11 @@ export class Board extends React.Component<Props, State> {
         const index = this.getMouseBoardIndex();
         if (this.localBoard[index] != Piece.Empty)
             this.draggingIndex = index; 
+    }
+
+    onTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+        this.onTouchMove(e);
+        this.onMouseDown();
     }
 
     onMouseUp = () => {
@@ -498,13 +512,23 @@ export class Board extends React.Component<Props, State> {
         } 
     }
 
-    onKeyDown = (e: KeyboardEvent) => {
+    historyGoForward = () => {
         if (!this.state.waitingForMove) {
-            if (e.key == "ArrowLeft")
-                this.engineWorker.postMessage({ command: EngineCommands.HistoryGoBack });
-            else if (e.key == "ArrowRight")
-                this.engineWorker.postMessage({ command: EngineCommands.HistoryGoForward });
+            this.engineWorker.postMessage({ command: EngineCommands.HistoryGoForward });
         }
+    }
+
+    historyGoBack = () => {
+        if (!this.state.waitingForMove) {
+            this.engineWorker.postMessage({ command: EngineCommands.HistoryGoBack });
+        }
+    }
+
+    onKeyDown = (e: KeyboardEvent) => {
+        if (e.key == "ArrowLeft")
+            this.historyGoBack();
+        else if (e.key == "ArrowRight")
+            this.historyGoForward();
     }
 
     undoLastMove = () => {
@@ -539,7 +563,7 @@ export class Board extends React.Component<Props, State> {
         const { localHistory, historyIndex } = this.state;
         const { whiteTurn, moveTime, searchDepth, movesConsidered } = localHistory[historyIndex];
         return (
-        <div style={{ display: "flex", flexDirection: this.state.width < 900 ? "column" : "row" }}>
+        <div style={{ display: "flex", flexDirection: this.state.width < 900 ? "column-reverse" : "row" }}>
             <div style={{ display: "flex", flexDirection: "column", marginRight: "20px", marginBottom: "50px", minWidth: "250px" }}>
                 <FormControlLabel
                     control={<Checkbox checked={this.state.showNumbers} onChange={() => this.setState({ showNumbers: !this.state.showNumbers })} name="asd" />}
@@ -564,6 +588,10 @@ export class Board extends React.Component<Props, State> {
                 <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.botMove}>Make a bot move</Button>
                 <br />
                 <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.undoLastMove}>Undo last move</Button>
+                <br />
+                <Button disabled={this.state.waitingForMove || historyIndex == 0} variant="contained" onClick={this.historyGoBack}>History go back</Button>
+                <br />
+                <Button disabled={this.state.waitingForMove || historyIndex == localHistory.length - 1} variant="contained" onClick={this.historyGoForward}>History go forward</Button>
                 <br />
                 <Button variant="contained" onClick={this.printPieceLocations}>Print Piece Locations</Button>
                 <br />
@@ -590,12 +618,18 @@ export class Board extends React.Component<Props, State> {
                 <canvas
                     ref={this.canvasRef}
                     onMouseMove={this.onMouseMove}
+                    onTouchMove={this.onTouchMove}
                     onMouseDown={this.onMouseDown}
+                    onTouchStart={this.onTouchStart}
                     onMouseUp={this.onMouseUp}
+                    onTouchEnd={this.onMouseUp}
                     width={this.state.cellSize * 8}
                     height={this.state.cellSize * 8}
+                    style={{ touchAction: "none" }}
                 />
                 <EvaluationBar evaluation={this.state.currentEval} width={this.state.width} height={this.state.height} />
+                <br />
+                <br />
             </div>
         </div>
         );
