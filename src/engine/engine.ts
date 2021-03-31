@@ -1491,6 +1491,9 @@ ctx.addEventListener("message", (e) => {
         case EngineCommands.RetrievePieceLocations:
             ctx.postMessage({ command: e.data.command, locations: engine.pieceLocations });
             break;
+        case EngineCommands.UpdateMaxMoveTime:
+            engine.searchMaxTime = e.data.time;
+            break;
         default:
             break;
     }

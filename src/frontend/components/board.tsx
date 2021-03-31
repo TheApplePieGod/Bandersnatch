@@ -1,4 +1,4 @@
-import { Button, FormControlLabel, Checkbox, Typography, Paper } from '@material-ui/core';
+import { Button, FormControlLabel, Checkbox, Typography, Paper, Slider } from '@material-ui/core';
 import bigInt from 'big-integer';
 import React from 'react';
 import { Piece, getPieceName, getPieceNameShort, EngineCommands, Sounds, EvalMove, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation } from "../../definitions";
@@ -23,6 +23,7 @@ interface State {
     currentEval: number;
     localHistory: History[];
     historyIndex: number;
+    botMaxMoveTime: number;
 }
 
 interface History {
@@ -70,7 +71,8 @@ export class Board extends React.Component<Props, State> {
             botIterative: true,
             currentEval: 0,
             localHistory: [],
-            historyIndex: 0
+            historyIndex: 0,
+            botMaxMoveTime: 3
         };
 
         this.engineWorker.onmessage = this.handleMessage;
@@ -556,6 +558,13 @@ export class Board extends React.Component<Props, State> {
         return `${from} ${move.capture ? 'x' : "=>"} ${to} (${move.eval > 0 ? '+' : ''}${Math.floor(move.eval)})`;
     }
 
+    updateBotMaxMoveTime = (e: React.ChangeEvent<{}>, value: number | number[]) => {
+        if (!this.state.waitingForMove) {
+            this.setState({ botMaxMoveTime: value as number });
+            this.engineWorker.postMessage({ command: EngineCommands.UpdateMaxMoveTime, time: (value as number) * 1000 });
+        }
+    }
+
     render = () => {
         if (this.state.historyIndex == -1 || this.state.localHistory.length == 0)
             return <Typography color="textPrimary">Loading...</Typography>
@@ -584,6 +593,18 @@ export class Board extends React.Component<Props, State> {
                 <FormControlLabel
                     control={<Checkbox checked={this.state.botIterative} onChange={() => this.setState({ botIterative: !this.state.botIterative })} />}
                     label={<Typography color="textPrimary">Bot Iterative Deepening</Typography>}
+                />
+                <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Max bot move time (seconds)`}</Typography>
+                <Slider
+                    value={this.state.botMaxMoveTime}
+                    disabled={this.state.waitingForMove}
+                    onChange={this.updateBotMaxMoveTime}
+                    valueLabelDisplay="auto"
+                    step={0.5}
+                    marks
+                    min={0.5}
+                    max={10}
+                    style={{ marginLeft: "5px", marginTop: "-10px" }}
                 />
                 <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.botMove}>Make a bot move</Button>
                 <br />
@@ -614,7 +635,7 @@ export class Board extends React.Component<Props, State> {
                     })
                 }
             </div>
-            <div style={{ margin: "auto" }}>
+            <div style={{ margin: "auto", marginTop: 0 }}>
                 <canvas
                     ref={this.canvasRef}
                     onMouseMove={this.onMouseMove}
