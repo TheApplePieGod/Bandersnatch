@@ -117,6 +117,7 @@ export class Engine {
         //startingFEN = "6k1/5p2/6p1/8/7p/8/6PP/6K1 b - - 0 0"; // hard pawn endgame
         //startingFEN = "4R3/1k6/1p2P1p1/p7/4r3/1P1r4/1K6/2R5 w - - 0 0"; // 4 rooks endgame
         //startingFEN = "r2qr1k1/1p1b1pp1/3p1b1p/3p4/p2NPPP1/4B3/PPPQ2P1/3RR1K1 w - - 0 1"; // pawn structure test
+        //startingFEN = "r1b1kb1r/p2pqppp/2p2n2/4N3/1pBnP3/2N5/PPPP1PPP/R1BQ1RK1 w kq - 0 1"; // PVSearch test
 
         // initialize the hash table (0-63)
         const maxVal: bigInt.BigNumber = bigInt(2).pow(64).minus(1);
@@ -1166,11 +1167,11 @@ export class Engine {
             this.boardHash = this.updateHash(deltas, startingHash, oldEnPassant, oldCastleStatus);
 
             // calculate evaluation (one player's upper bound is the other's lower bound)
-            let evaluation: number = -1 * this.findBestMove(canCancel, depth - 1, offset + 1, -alpha - 1, -alpha);
-            if (evaluation > alpha && evaluation < beta)
-                evaluation = -1 * this.findBestMove(canCancel, depth - 1, offset + 1, -beta, -alpha);
+            // let evaluation: number = -1 * this.findBestMove(canCancel, depth - 1, offset + 1, -alpha - 1, -alpha);
+            // if (evaluation > alpha && evaluation < beta)
+            //     evaluation = -1 * this.findBestMove(canCancel, depth - 1, offset + 1, -beta, -alpha);
 
-            //let evaluation: number = -1 * this.findBestMove(canCancel, depth - 1, offset + 1, -beta, -alpha);
+            let evaluation: number = -1 * this.findBestMove(canCancel, depth - 1, offset + 1, -beta, -alpha);
 
             // unmake the move
             this.unmakeMove(deltas);

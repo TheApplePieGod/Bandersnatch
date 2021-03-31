@@ -51,7 +51,7 @@ export class Board extends React.Component<Props, State> {
     draggingIndex = -1;
     relativeMousePos = { x: 0, y: 0 };
     boardSize = 8;
-    botMoveMinTime = 1000;
+    botMoveMinTime = 500;
     rendering = false;
 
     constructor(props: Props) {
