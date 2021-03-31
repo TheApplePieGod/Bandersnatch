@@ -335,7 +335,7 @@ export class Engine {
             }
 
             const x = currentIndex % this.boardSize;
-            const y = Math.floor(currentIndex / this.boardSize);
+            const y = (currentIndex / this.boardSize) << 0;
             if (slopeX == -1 && x == 0)
                 break;
             if (slopeX == 1 && x == xyMax)
@@ -351,7 +351,7 @@ export class Engine {
 
     getValidSquares = (index: number, piece: number, attackOnly: boolean, updatePins: boolean, inArray: number[]) => {
         const x = index % this.boardSize;
-        const y = Math.floor(index / this.boardSize);
+        const y = (index / this.boardSize) << 0;
         const xyMax = this.boardSize - 1;
 
         const isWhite = piece >= 7;
@@ -607,7 +607,7 @@ export class Engine {
                     }
 
                     // add more moves to account for promoting to various pieces
-                    const y = Math.floor(valid[k] / this.boardSize);
+                    const y = (valid[k] / this.boardSize) << 0;
                     if (i == Piece.Pawn_W && y == 0) {
                         allValid.push({ from: location, to: valid[k], data: Piece.Queen_W, score: 0 });
                         allValid.push({ from: location, to: valid[k], data: Piece.Rook_W, score: 0 });
@@ -652,7 +652,7 @@ export class Engine {
 
         // promotion check
         let promoted = false;
-        const y = Math.floor(toIndex / this.boardSize);
+        const y = (toIndex / this.boardSize) << 0;
         if (this.board[toIndex] == Piece.Pawn_W && y == 0) {
             this.board[toIndex] = move.data;
             this.pieceLocations[Piece.Pawn_W].splice(this.pieceLocations[Piece.Pawn_W].indexOf(fromIndex), 1); // remove pawn entry
@@ -956,7 +956,7 @@ export class Engine {
             value += this.evaluateSquareTable(Piece.Bishop_W, bishopSquareTable, white);
             value += this.evaluateSquareTable(Piece.Queen_W, queenSquareTable, white);
             let kingMiddlegameValue = this.evaluateSquareTable(Piece.King_W, kingMiddleGameSquareTable, white);
-            value += Math.floor(kingMiddlegameValue * (1 - endgameWeight));
+            value += (kingMiddlegameValue * (1 - endgameWeight)) << 0;
         } else {
             value += this.evaluateSquareTable(Piece.Pawn_B, pawnSquareTable, white);
             value += this.evaluateSquareTable(Piece.Rook_B, rookSquareTable, white);
@@ -964,7 +964,7 @@ export class Engine {
             value += this.evaluateSquareTable(Piece.Bishop_B, bishopSquareTable, white);
             value += this.evaluateSquareTable(Piece.Queen_B, queenSquareTable, white);
             let kingMiddlegameValue = this.evaluateSquareTable(Piece.King_B, kingMiddleGameSquareTable, white);
-            value += Math.floor(kingMiddlegameValue * (1 - endgameWeight));
+            value += (kingMiddlegameValue * (1 - endgameWeight)) << 0;
         }
 
         return value;
@@ -980,7 +980,7 @@ export class Engine {
         // try and move kings together
         score += 14 - distance;
 
-        return Math.floor(score * 20 * endgameWeight);
+        return (score * 20 * endgameWeight) << 0;
     }
 
     evaluatePawnStructure = (white: boolean) => {
@@ -1015,13 +1015,13 @@ export class Engine {
         let whiteEval = whiteMaterial * materialWeight;
         let blackEval = blackMaterial * materialWeight;
         
-        whiteEval += Math.floor(this.evaluateSquareTables(true, whiteEndgameWeight) * developmentWeight);
-        blackEval += Math.floor(this.evaluateSquareTables(false, blackEndgameWeight) * developmentWeight);
+        whiteEval += (this.evaluateSquareTables(true, whiteEndgameWeight) * developmentWeight) << 0;
+        blackEval += (this.evaluateSquareTables(false, blackEndgameWeight) * developmentWeight) << 0;
 
         const whiteX = this.pieceLocations[Piece.King_W][0] % this.boardSize;
-        const whiteY = Math.floor(this.pieceLocations[Piece.King_W][0] / this.boardSize);
+        const whiteY = (this.pieceLocations[Piece.King_W][0] / this.boardSize) << 0;
         const blackX = this.pieceLocations[Piece.King_B][0] % this.boardSize;
-        const blackY = Math.floor(this.pieceLocations[Piece.King_B][0] / this.boardSize);
+        const blackY = (this.pieceLocations[Piece.King_B][0] / this.boardSize) << 0;
         const distanceBetween = Math.abs(whiteX - blackX) + Math.abs(whiteY - blackY);
         whiteEval += this.evaluateEndgamePosition(whiteEndgameWeight, blackX, blackY, distanceBetween);
         blackEval += this.evaluateEndgamePosition(blackEndgameWeight, whiteX, whiteY, distanceBetween);
@@ -1083,7 +1083,7 @@ export class Engine {
             if (Date.now() - this.searchStartTime >= this.searchMaxTime) // search aborted so dont update move
                 break;
 
-            //console.log(`Finished iteration ${i} in ${Math.floor(iterationEndTime - iterationStartTime)}ms`);
+            //console.log(`Finished iteration ${i} in ${(iterationEndTime - iterationStartTime) << 0}ms`);
 
             lastCompletedDepth = i;
             this.movesFoundThisTurn = this.movesFoundThisIteration;
@@ -1103,17 +1103,20 @@ export class Engine {
         if (canCancel && Date.now() - this.searchStartTime >= this.searchMaxTime) // abort search
             return 0;
 
+        if (depth <= 0)
+            return this.quiescenceSearch(alpha, beta);
+
         if (offset > 0) {
             // detect any repetition and assume a draw is coming (return a 0 draw score)
             if (this.repetitionHistory.includes(this.boardHash))
                 return 0;
+        }
 
-            // modify the values to skip this position if a mating sequence has already been found and is shorter
-            alpha = Math.max(alpha, Number.MIN_SAFE_INTEGER + offset);
-            beta = Math.min(beta, Number.MAX_SAFE_INTEGER - offset);
-            if (alpha >= beta) {
-                return alpha;
-            }
+        // modify the values to skip this position if a mating sequence has already been found and is shorter
+        alpha = Math.max(alpha, Number.MIN_SAFE_INTEGER + offset);
+        beta = Math.min(beta, Number.MAX_SAFE_INTEGER - offset);
+        if (alpha >= beta) {
+            return alpha;
         }
 
         const hashString = this.boardHash.toString();
@@ -1138,13 +1141,12 @@ export class Engine {
             }
         }
 
-        if (depth <= 0)
-            return this.quiescenceSearch(alpha, beta);
-
         const attackedSquares = this.getAttackedSquares(this.whiteTurn, -1);
         const validMoves = this.getAllValidMoves(false, attackedSquares);
+        const inCheck = this.isInCheckAttackedSquares(this.whiteTurn, attackedSquares);
+        
         if (validMoves.length == 0) { // either checkmate or stalemate
-            if (this.isInCheckAttackedSquares(this.whiteTurn, attackedSquares))
+            if (inCheck)
                 return Number.MIN_SAFE_INTEGER + offset; // checkmate, worst possible move
             else
                 return 0; // stalemate, draw
@@ -1288,7 +1290,7 @@ export class Engine {
         if (this.historicalIndex != 0)
             return;
 
-        const moveIndex = Math.floor(Math.random() * this.allValidMoves.length);
+        const moveIndex = (Math.random() * this.allValidMoves.length) << 0;
         const move = this.allValidMoves[moveIndex];
 
         this.updateCastleStatus(move.from, move.to);
