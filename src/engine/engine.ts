@@ -118,6 +118,8 @@ export class Engine {
         //startingFEN = "4R3/1k6/1p2P1p1/p7/4r3/1P1r4/1K6/2R5 w - - 0 0"; // 4 rooks endgame
         //startingFEN = "r2qr1k1/1p1b1pp1/3p1b1p/3p4/p2NPPP1/4B3/PPPQ2P1/3RR1K1 w - - 0 1"; // pawn structure test
         //startingFEN = "r1b1kb1r/p2pqppp/2p2n2/4N3/1pBnP3/2N5/PPPP1PPP/R1BQ1RK1 w kq - 0 1"; // PVSearch test
+        //startingFEN = "8/2p5/8/KP5r/8/8/8/7k b - - 0 1"; // en passant pin test
+        //startingFEN = "8/k7/3p4/p2P1p2/P2P1P2/8/8/K7 w - - 0 1"; // hard endgame draw test
 
         // initialize the hash table (0-63)
         const maxVal: bigInt.BigNumber = bigInt(2).pow(64).minus(1);
@@ -467,7 +469,7 @@ export class Engine {
         }
     }
 
-    getAttackedSquares = (white: boolean, toIndex: number) => {
+    getAttackedSquares = (white: boolean, toIndex: number, updatePins: boolean = false) => {
         let attackedSquares: number[] = [];
 
         const startIndex = white ? 1 : 7;
@@ -477,25 +479,11 @@ export class Engine {
             for (let j = 0; j < length; j++) {
                 if (this.pieceLocations[i][j] == toIndex) // when searching for valid moves, instead of modifying the piece dictionaries, just ignore any piece that would have been captured
                     continue;
-                this.getValidSquares(this.pieceLocations[i][j], i, true, false, attackedSquares);
+                this.getValidSquares(this.pieceLocations[i][j], i, true, updatePins, attackedSquares);
             }
         }
 
         return attackedSquares;
-    }
-
-    updatePinnedSquares = (white: boolean) => {
-        let tempArray: number[] = [];
-
-        // we only care about sliding pieces of the opposite color for pins
-        const startIndex = white ? 2 : 8;
-        const endIndex = white ? 4 : 10;
-        for (let i = startIndex; i <= endIndex; i++) {
-            const length = this.pieceLocations[i].length;
-            for (let j = 0; j < length; j++) {
-                this.getValidSquares(this.pieceLocations[i][j], i, true, true, tempArray);
-            }
-        }
     }
 
     getValidCastleSquares = (attackedSquares: number[], inArray: EvalMove[]) => {
@@ -543,14 +531,16 @@ export class Engine {
 
     getAllValidMoves = (capturesOnly: boolean = false, baseAttackedSquares: number[] = []) => {
         let allValid: EvalMove[] = [];
-        if (baseAttackedSquares.length == 0)
-            baseAttackedSquares = this.getAttackedSquares(this.whiteTurn, -1);
+        
+        if (baseAttackedSquares.length == 0) {
+            this.pinnedPieces = [];
+            baseAttackedSquares = this.getAttackedSquares(this.whiteTurn, -1, true);
+        }
 
         if (!capturesOnly)
             this.getValidCastleSquares(baseAttackedSquares, allValid);
 
-        this.pinnedPieces = [];
-        this.updatePinnedSquares(this.whiteTurn);
+        
         const inCheck = this.isInCheckAttackedSquares(this.whiteTurn, baseAttackedSquares);
 
         const startIndex = this.whiteTurn ? 7 : 1;
@@ -570,7 +560,7 @@ export class Engine {
                         continue;
 
                     if (inCheck || isPinned || i == Piece.King_W || i == Piece.King_B) { // more optimizations here?
-                    //if (true) {
+                    //if (false) {
                         const pieceBackup = this.board[valid[k]];
                         const backup2 = this.board[location];
                         this.board[valid[k]] = i;
@@ -855,56 +845,6 @@ export class Engine {
         return false;
     }
 
-    predictAndOrderMoves = (moves: EvalMove[], attackedSquares: number[]) => {
-        const movesLength = moves.length;
-        
-        for (let i = 0; i < movesLength; i++) {
-            let score = 0;
-            const movingPiece = this.board[moves[i].from];
-            const capturingPiece = this.board[moves[i].to];
-            const promoting = moves[i].data;
-
-            if (capturingPiece != Piece.Empty) {
-                score = 10 * this.getPieceValue(capturingPiece) - this.getPieceValue(movingPiece); // apply a higher score for lower val piece capturing higher val
-            }
-
-            // deprioritize moving into attacked squares
-            if (attackedSquares.includes(moves[i].to)) {
-                score -= this.getPieceValue(movingPiece);
-            }
-
-            // score promotion moves
-            if (movingPiece == Piece.Pawn_W || movingPiece == Piece.Pawn_B) {
-                switch (promoting) {
-                    case Piece.Knight_W:
-                    case Piece.Knight_B:
-                        score += this.getPieceValue(Piece.Knight_W);
-                        break;
-                    case Piece.Bishop_W:
-                    case Piece.Bishop_B:
-                        score += this.getPieceValue(Piece.Bishop_W);
-                        break;
-                    case Piece.Queen_W:
-                    case Piece.Queen_B:
-                        score += this.getPieceValue(Piece.Queen_W);
-                        break;
-                    case Piece.Rook_W:
-                    case Piece.Rook_B:
-                        score += this.getPieceValue(Piece.Rook_W);
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            moves[i].score = score;
-        }
-
-        moves.sort((a, b) => {
-            return b.score - a.score;
-        });
-    }
-
     readSquareTableValue = (index: number, table: number[], white: boolean) => {
         if (!white)
             index = 63 - index;
@@ -1050,6 +990,61 @@ export class Engine {
         return value;
     }
 
+    predictAndOrderMoves = (moves: EvalMove[], attackedSquares: number[], storedMove: EvalMove | undefined) => {
+        const movesLength = moves.length;
+
+        for (let i = 0; i < movesLength; i++) {
+            let score = 0;
+            const movingPiece = this.board[moves[i].from];
+            const capturingPiece = this.board[moves[i].to];
+            const promoting = moves[i].data;
+
+            if (storedMove != undefined && storedMove.to == moves[i].to && storedMove.from == moves[i].from && storedMove.data == moves[i].data) {
+                moves[i].score = 10000;
+                continue;
+            }
+
+            if (capturingPiece != Piece.Empty) {
+                score += 10 * this.getPieceValue(capturingPiece) - this.getPieceValue(movingPiece); // apply a higher score for lower val piece capturing higher val
+            }
+
+            // deprioritize moving into attacked squares
+            if (attackedSquares.includes(moves[i].to)) {
+                score -= this.getPieceValue(movingPiece);
+            }
+
+            // score promotion moves
+            if (movingPiece == Piece.Pawn_W || movingPiece == Piece.Pawn_B) {
+                switch (promoting) {
+                    case Piece.Knight_W:
+                    case Piece.Knight_B:
+                        score += this.getPieceValue(Piece.Knight_W);
+                        break;
+                    case Piece.Bishop_W:
+                    case Piece.Bishop_B:
+                        score += this.getPieceValue(Piece.Bishop_W);
+                        break;
+                    case Piece.Queen_W:
+                    case Piece.Queen_B:
+                        score += this.getPieceValue(Piece.Queen_W);
+                        break;
+                    case Piece.Rook_W:
+                    case Piece.Rook_B:
+                        score += this.getPieceValue(Piece.Rook_W);
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            moves[i].score = score;
+        }
+
+        moves.sort((a, b) => {
+            return b.score - a.score;
+        });
+    }
+
     findBestMoveWithIterativeDeepening = () => {
         this.searchStartTime = Date.now();
         const maxDepth = 30;
@@ -1100,8 +1095,10 @@ export class Engine {
         }
 
         const hashString = this.boardHash.toString();
+        let storedMove: EvalMove | undefined = undefined;
         if (hashString in this.savedEvaluations) {
             const savedEval = this.savedEvaluations[hashString];
+            storedMove = savedEval.bestMove;
             let finalScore = savedEval.eval;
             let shouldReturn = false;
             if (savedEval.depth >= depth) {
@@ -1121,7 +1118,8 @@ export class Engine {
             }
         }
 
-        const attackedSquares = this.getAttackedSquares(this.whiteTurn, -1);
+        this.pinnedPieces = [];
+        const attackedSquares = this.getAttackedSquares(this.whiteTurn, -1, true);
         const validMoves = this.getAllValidMoves(false, attackedSquares);
         const inCheck = this.isInCheckAttackedSquares(this.whiteTurn, attackedSquares);
         
@@ -1131,7 +1129,7 @@ export class Engine {
             else
                 return 0; // stalemate, draw
         }
-        this.predictAndOrderMoves(validMoves, attackedSquares);
+        this.predictAndOrderMoves(validMoves, attackedSquares, storedMove);
 
         const startingHash = this.boardHash;
         const oldEnPassant = this.enPassantSquare;
@@ -1172,16 +1170,13 @@ export class Engine {
                 savingType = SavedEvalTypes.Exact;
 
                 if (offset == 0) {
-                    this.movesFoundThisIteration.push({
-                        from: bestMoveForThisPosition.from,
-                        to: bestMoveForThisPosition.to,
-                        data: bestMoveForThisPosition.data,
-                        piece: this.board[bestMoveForThisPosition.from],
-                        capture: this.board[bestMoveForThisPosition.to] != Piece.Empty,
-                        eval: this.whiteTurn ? evaluation : -1 * evaluation
-                    });
                     this.evalBestMoveThisIteration = bestMoveForThisPosition;
                     this.evalBestMoveThisIteration.score = evaluation;
+                    this.movesFoundThisIteration.push({
+                        move: this.evalBestMoveThisIteration,
+                        piece: this.board[bestMoveForThisPosition.from],
+                        capture: this.board[bestMoveForThisPosition.to] != Piece.Empty,
+                    });
                 }
             }
         }
@@ -1198,9 +1193,10 @@ export class Engine {
         if (evaluation > alpha)
             alpha = evaluation;
 
-        const attackedSquares = this.getAttackedSquares(this.whiteTurn, -1);
+        this.pinnedPieces = [];
+        const attackedSquares = this.getAttackedSquares(this.whiteTurn, -1, true);
         const validMoves = this.getAllValidMoves(true, attackedSquares);
-        this.predictAndOrderMoves(validMoves, attackedSquares);
+        this.predictAndOrderMoves(validMoves, attackedSquares, undefined);
 
         const oldEnPassant = this.enPassantSquare;
         const length = validMoves.length;
@@ -1285,11 +1281,12 @@ export class Engine {
             return;
 
         const startTime = self.performance.now();
+        const lastMove = this.evalBestMove;
 
         this.movesFoundThisIteration = [];
         this.movesFoundThisTurn = [];
+        this.evalBestMove = {} as EvalMove;
         
-        const lastMove = this.evalBestMove;
         this.findBestMove(false, depth, 0, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
         if (lastMove.to == this.evalBestMoveThisIteration.to && lastMove.from == this.evalBestMoveThisIteration.from) {
             console.log("Attempting to make the same move: " + lastMove.toString());
@@ -1316,11 +1313,12 @@ export class Engine {
             return;
 
         const startTime = self.performance.now();
+        const lastMove = this.evalBestMove;
 
         this.movesFoundThisIteration = [];
         this.movesFoundThisTurn = [];
+        this.evalBestMove = {} as EvalMove;
 
-        const lastMove = {...this.evalBestMove};
         engine.findBestMoveWithIterativeDeepening();
         if (lastMove.to == this.evalBestMove.to && lastMove.from == this.evalBestMove.from) {
             console.log("Attempting to make the same move: " + lastMove.toString());

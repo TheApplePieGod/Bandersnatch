@@ -553,9 +553,9 @@ export class Board extends React.Component<Props, State> {
     }
 
     debugMoveToText = (move: DebugMoveOutput) => {
-        const from = getPieceNameShort(move.piece) + indexToNotation(move.from);
-        const to = indexToNotation(move.to);
-        return `${from} ${move.capture ? 'x' : "=>"} ${to} (${move.eval > 0 ? '+' : ''}${Math.floor(move.eval)})`;
+        const from = getPieceNameShort(move.piece) + indexToNotation(move.move.from);
+        const to = indexToNotation(move.move.to);
+        return `${from} ${move.capture ? 'x' : "=>"} ${to} (${move.move.score > 0 ? '+' : ''}${Math.floor(move.move.score)})`;
     }
 
     updateBotMaxMoveTime = (e: React.ChangeEvent<{}>, value: number | number[]) => {
