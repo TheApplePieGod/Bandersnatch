@@ -31,7 +31,7 @@ export const EvaluationBar = (props: Props) => {
 
     return (
         <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <StyledLinearProgress variant="determinate" style={{ width: "100%", height: props.width < 900 ? "25px" : "50px" }} value={normalizeEval()} />
+            <StyledLinearProgress variant="determinate" style={{ width: "100%", height: props.width < 900 ? "20px" : "40px" }} value={normalizeEval()} />
             <Typography variant="h5" color="textPrimary">{`${props.evaluation > 0 ? '+' : ''}${Math.floor(Math.min(props.evaluation, 99999))}`}</Typography>
         </div>
     );

@@ -40,12 +40,9 @@ export interface HistoricalBoard {
 }
 
 export interface DebugMoveOutput {
-    from: number;
-    to: number;
+    move: EvalMove;
     piece: number;
     capture: boolean;
-    data: number;
-    eval: number;
 }
 
 export enum EngineCommands {
