@@ -1,5 +1,6 @@
 import bigInt from "big-integer";
-import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, EvalMove, EngineCommands, kingMiddleGameSquareTable, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex } from "../definitions";
+import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, EvalMove, EngineCommands, kingMiddleGameSquareTable, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation, getPieceNameShort } from "../definitions";
+import { openings } from "./openings";
 
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
@@ -55,8 +56,10 @@ export class Engine {
 
     pieceCapturedThisTurn = false;
     castledThisTurn = false;
+    inCheck = false;
     timeTakenLastTurn = 0;
     depthSearchedThisTurn = 0;
+    currentOpening = "";
 
     pieceLocations: number[][] = [
         [],
@@ -76,6 +79,8 @@ export class Engine {
 
     moveCount = 0;
     moveRepCount = 0;
+    moveList: string[] = [];
+
     pinnedPieces: number[] = [];
     historicalBoards: HistoricalBoard[] = [];
     historicalIndex = 0;
@@ -598,12 +603,30 @@ export class Engine {
         return allValid;
     }
 
+    generateMoveString = (fromIndex: number, toIndex: number) => {
+        if (this.castledThisTurn) {
+            if (this.whiteTurn) {
+
+            }
+            return "O-O";
+        }
+
+        let pieceName = getPieceNameShort(this.board[toIndex]).toUpperCase(); // for opening comparison
+        if (pieceName == "" && this.pieceCapturedThisTurn) { // pawn capture so get the name of the file it came from
+            pieceName = indexToNotation(fromIndex)[0];
+        }
+        const newLocation = indexToNotation(toIndex);
+
+        return `${pieceName}${this.pieceCapturedThisTurn ? 'x' : ''}${newLocation}${this.inCheck ? '+' : ''}`;
+    }
+
     finishTurn = () => {
         this.whiteTurn = !this.whiteTurn;
         this.historicalBoards.push(this.createHistoricalBoard());
         this.boardHash = this.hashBoard();
         this.boardDelta = [];
         this.allValidMoves = this.getAllValidMoves();
+        this.inCheck = this.isInCheck(this.whiteTurn);
         this.savedEvaluations = {};
 
         this.moveCount++;
@@ -673,6 +696,9 @@ export class Engine {
 
         if (finishTurn) {
             this.finishTurn();
+
+            const moveString = this.generateMoveString(fromIndex, toIndex);
+            this.moveList.push(moveString);
 
             // update board repetition history
             if (movingPiece == Piece.Pawn_W || movingPiece == Piece.Pawn_B || capturedPiece != Piece.Empty) { // repetitions not possible with these moves
@@ -1273,6 +1299,109 @@ export class Engine {
         this.forceMakeMove(move.from, { index: move.to, data: move.data }, true);
     }
 
+    findPieceInFile = (piece: number, file: string) => {
+        for (let i = 0; i < this.pieceLocations[piece].length; i++) {
+            const index = this.pieceLocations[piece][i];
+            const foundFile = indexToNotation(index)[0];
+            if (foundFile == file)
+                return index;
+        }
+        return -1;
+    }
+
+    bookMove = () => { // a bit messy, cleanup ?
+        try {
+            if (this.moveCount == 0) { // if its move one, play a random opening
+                const index = Math.floor(Math.random() * openings.length);
+                const opening = openings[index];
+                const move = opening.moves[0];
+                move.replace(/\W/g, '');
+                const file = move[move.length - 2];
+                const rank = parseInt(move[move.length - 1]);
+                let from = -1;
+                let to = notationToIndex(rank, file);
+
+                if (move.length == 2) { // pawn move
+                    from = this.findPieceInFile(Piece.Pawn_W, file); // always white since move zero
+                } else { // otherwise find the piece with that move as valid
+                    const pieceName = move[0];
+                    const piece = this.fenToPieceDict[this.whiteTurn ? pieceName.toUpperCase() : pieceName.toLowerCase()];
+                    for (let i = 0; i < this.allValidMoves.length; i++) {
+                        if (this.board[this.allValidMoves[i].from] == piece && this.allValidMoves[i].to == to) {
+                            from = this.allValidMoves[i].from;
+                            break;
+                        }
+                    }
+                }
+
+                this.currentOpening = opening.name;
+                this.depthSearchedThisTurn = -1;
+                this.updateCastleStatus(from, to);
+                this.pieceCapturedThisTurn = this.board[to] != Piece.Empty;
+                this.forceMakeMove(from, { index: to, data: Piece.Empty }, true);
+
+                return true;
+            } else { // otherwise we must interpret the position and decide if this opening exists
+                let validOpenings: number[] = [];
+                for (let i = 0; i < openings.length; i++) {
+                    if (openings[i].moves.length > this.moveList.length)
+                        if (this.moveList.every((e, j) => e == openings[i].moves[j]))
+                            validOpenings.push(i);
+                }
+
+                if (validOpenings.length == 0) {
+                    return false;
+                }
+
+                // then pick a random opening from the valid ones and make the next move
+                const index = Math.floor(Math.random() * validOpenings.length);
+                const opening = openings[validOpenings[index]];
+                const move = opening.moves[this.moveList.length];
+                move.replace(/\W/g, '');
+                const file = move[move.length - 2];
+                const rank = parseInt(move[move.length - 1]);
+                let from = -1;
+                let to = notationToIndex(rank, file);
+
+                if (move.length == 2) { // pawn move
+                    from = this.findPieceInFile(this.whiteTurn ? Piece.Pawn_W : Piece.Pawn_B, file);
+                } else { // otherwise find the piece with that move as valid
+                    const pieceName = move[0];
+                    let piece = this.fenToPieceDict[this.whiteTurn ? pieceName.toUpperCase() : pieceName.toLowerCase()];
+                    for (let i = 0; i < this.allValidMoves.length; i++) {
+                        if (this.board[this.allValidMoves[i].from] == piece && this.allValidMoves[i].to == to) {
+                            from = this.allValidMoves[i].from;
+                            break;
+                        }
+                    }
+
+                    // if not found, its likely a pawn capture move
+                    piece = this.whiteTurn ? Piece.Pawn_W : Piece.Pawn_B;
+                    if (from == -1 ){
+                        for (let i = 0; i < this.allValidMoves.length; i++) {
+                            if (this.board[this.allValidMoves[i].from] == piece && this.allValidMoves[i].to == to) {
+                                from = this.allValidMoves[i].from;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                this.currentOpening = opening.name;
+                this.depthSearchedThisTurn = -1;
+                this.castledThisTurn = this.updateCastleStatus(from, to);
+                this.pieceCapturedThisTurn = this.board[to] != Piece.Empty;
+                this.forceMakeMove(from, { index: to, data: Piece.Empty }, true);
+
+                return true;
+            }
+        } catch (e) { // if something goes wrong, just cancel
+            return false;
+        }
+
+        return false
+    }
+
     evalBotMove = (depth: number) => {
         if (this.historicalIndex != 0)
             return;
@@ -1377,7 +1506,6 @@ ctx.addEventListener("message", (e) => {
         case EngineCommands.AttemptMove:
         {
             const result = engine.attemptMove(e.data.fromIndex, e.data.toIndex);
-            const inCheck = result ? engine.isInCheck(engine.whiteTurn) : false;
             ctx.postMessage({
                 command: e.data.command,
                 from: e.data.fromIndex,
@@ -1385,7 +1513,7 @@ ctx.addEventListener("message", (e) => {
                 whiteTurn: engine.whiteTurn,
                 board: result ? engine.historicalBoards[engine.historicalBoards.length - 1] : undefined,
                 validMoves: engine.allValidMoves,
-                inCheck: inCheck,
+                inCheck: engine.inCheck,
                 captured: engine.pieceCapturedThisTurn,
                 castled: engine.castledThisTurn,
                 draw: engine.checkForDraw()
@@ -1429,19 +1557,20 @@ ctx.addEventListener("message", (e) => {
         }
         case EngineCommands.BotBestMove:
         {
-            engine.evalBotMove(6);
-            const inCheck = engine.isInCheck(engine.whiteTurn);
+            if (!(engine.moveCount <= 5 && engine.bookMove()))
+                engine.evalBotMove(6);
             ctx.postMessage({
                 command: e.data.command,
                 from: engine.evalBestMove.from,
                 to: engine.evalBestMove.to,
                 timeTaken: engine.timeTakenLastTurn,
                 depthSearched: engine.depthSearchedThisTurn,
+                opening: engine.currentOpening,
                 movesFound: engine.movesFoundThisTurn,
                 whiteTurn: engine.whiteTurn,
                 board: engine.historicalBoards[engine.historicalBoards.length - 1],
                 validMoves: engine.allValidMoves,
-                inCheck: inCheck,
+                inCheck: engine.inCheck,
                 captured: engine.pieceCapturedThisTurn,
                 castled: engine.castledThisTurn,
                 draw: engine.checkForDraw()
@@ -1450,20 +1579,21 @@ ctx.addEventListener("message", (e) => {
         }
         case EngineCommands.BotBestMoveIterative:
         {
-            engine.evalBotMoveIterative();
+            if (!(engine.moveCount <= 5 && engine.bookMove()))
+                engine.evalBotMoveIterative();
             //console.log(engine.calculateAllPossibleMoves(6));
-            const inCheck = engine.isInCheck(engine.whiteTurn);
             ctx.postMessage({
                 command: e.data.command,
                 from: engine.evalBestMove.from,
                 to: engine.evalBestMove.to,
                 timeTaken: engine.timeTakenLastTurn,
                 depthSearched: engine.depthSearchedThisTurn,
+                opening: engine.currentOpening,
                 movesFound: engine.movesFoundThisTurn,
                 whiteTurn: engine.whiteTurn,
                 board: engine.historicalBoards[engine.historicalBoards.length - 1],
                 validMoves: engine.allValidMoves,
-                inCheck: inCheck,
+                inCheck: engine.inCheck,
                 captured: engine.pieceCapturedThisTurn,
                 castled: engine.castledThisTurn,
                 draw: engine.checkForDraw()
