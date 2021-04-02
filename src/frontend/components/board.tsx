@@ -34,6 +34,7 @@ interface History {
     validMoves: EvalMove[];
     moveTime: number;
     searchDepth: number;
+    opening: string;
     whiteTurn: boolean;
 }
 
@@ -156,6 +157,7 @@ export class Board extends React.Component<Props, State> {
                         soundMade: 0,
                         validMoves: e.data.validMoves,
                         movesConsidered: [],
+                        opening: "",
                         moveTime: 0,
                         searchDepth: 0,
                         whiteTurn: true
@@ -206,6 +208,7 @@ export class Board extends React.Component<Props, State> {
                             validMoves: validMoves,
                             movesConsidered: [],
                             moveTime: 0,
+                            opening: "",
                             searchDepth: 0,
                             whiteTurn: e.data.whiteTurn
                         }])
@@ -281,6 +284,7 @@ export class Board extends React.Component<Props, State> {
                             movesConsidered: e.data.movesFound,
                             moveTime: e.data.timeTaken,
                             searchDepth: e.data.depthSearched,
+                            opening: e.data.opening,
                             whiteTurn: e.data.whiteTurn
                         }])
                     });
@@ -570,7 +574,7 @@ export class Board extends React.Component<Props, State> {
             return <Typography color="textPrimary">Loading...</Typography>
 
         const { localHistory, historyIndex } = this.state;
-        const { whiteTurn, moveTime, searchDepth, movesConsidered } = localHistory[historyIndex];
+        const { whiteTurn, moveTime, searchDepth, movesConsidered, opening } = localHistory[historyIndex];
         return (
         <div style={{ display: "flex", flexDirection: this.state.width < 900 ? "column-reverse" : "row" }}>
             <div style={{ display: "flex", flexDirection: "column", marginRight: "20px", marginBottom: "50px", minWidth: "250px" }}>
@@ -620,7 +624,8 @@ export class Board extends React.Component<Props, State> {
                 <br />
                 <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last move color: ${whiteTurn ? "Black" : "White"}`}</Typography>
                 <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last move time: ${Math.floor(moveTime)}ms`}</Typography>
-                <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last move depth: ${searchDepth} ply`}</Typography>
+                <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last move depth: ${searchDepth < 0 ? "Book move" : searchDepth + " ply"}`}</Typography>
+                {searchDepth == -1 && <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Opening: ${opening}`}</Typography> }
                 <br />
                 <hr style={{ width: "100%" }}/>
                 <br />
