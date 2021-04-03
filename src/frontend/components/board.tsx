@@ -579,7 +579,7 @@ export class Board extends React.Component<Props, State> {
         const { whiteTurn, moveTime, searchDepth, movesConsidered, opening } = localHistory[historyIndex];
         return (
         <div style={{ display: "flex", flexDirection: this.state.width < 900 ? "column-reverse" : "row" }}>
-            <div style={{ display: "flex", flexDirection: "column", marginRight: "20px", marginBottom: "50px", minWidth: "250px" }}>
+            <div style={{ display: "flex", flexDirection: "column", marginRight: "20px", marginBottom: "50px", minWidth: "250px", maxWidth: "250px" }}>
                 <div style={{ display: "flex", alignItems: "center" }}>
                     <Typography variant="h4" color="textSecondary">Bandersnatch</Typography>
                     <InfoButton title="Welcome">
@@ -685,10 +685,10 @@ export class Board extends React.Component<Props, State> {
                 <br />
                 <hr style={{ width: "100%" }}/>
                 <br />
-                <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last move color: ${whiteTurn ? "Black" : "White"}`}</Typography>
-                <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last move time: ${Math.floor(moveTime)}ms`}</Typography>
-                <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last move depth: ${searchDepth < 0 ? "Book move" : searchDepth + " ply"}`}</Typography>
-                {searchDepth == -1 && <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Opening: ${opening}`}</Typography> }
+                <Typography style={{ lineHeight: "30px" }} color="textPrimary"><b>Last move color: </b>{`${whiteTurn ? "Black" : "White"}`}</Typography>
+                <Typography style={{ lineHeight: "30px" }} color="textPrimary"><b>Last move time: </b>{`${Math.floor(moveTime)}ms`}</Typography>
+                <Typography style={{ lineHeight: "30px" }} color="textPrimary"><b>Last move depth: </b>{`${searchDepth < 0 ? "Book move" : searchDepth + " ply"}`}</Typography>
+                {searchDepth == -1 && <Typography style={{ lineHeight: "30px" }} color="textPrimary"><b>Opening: </b>{`${opening}`}</Typography> }
                 <br />
                 <hr style={{ width: "100%" }}/>
                 <br />
