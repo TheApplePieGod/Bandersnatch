@@ -579,7 +579,7 @@ export class Board extends React.Component<Props, State> {
         const { whiteTurn, moveTime, searchDepth, movesConsidered, opening } = localHistory[historyIndex];
         return (
         <div style={{ display: "flex", flexDirection: this.state.width < 900 ? "column-reverse" : "row" }}>
-            <div style={{ display: "flex", flexDirection: "column", marginRight: "20px", marginBottom: "50px", minWidth: "250px", maxWidth: "250px" }}>
+            <div style={{ display: "flex", flexDirection: "column", marginRight: "20px", marginBottom: "50px", minWidth: "300px", maxWidth: "300px" }}>
                 <div style={{ display: "flex", alignItems: "center" }}>
                     <Typography variant="h4" color="textSecondary">Bandersnatch</Typography>
                     <InfoButton title="Welcome">
@@ -651,7 +651,7 @@ export class Board extends React.Component<Props, State> {
                 <div>
                     <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.botMove}>Make a bot move</Button>
                     <InfoButton title="Bot Move">
-                        When clicked, the bot will make a move for whoever's turn it currently is. The bottom fields will then be updated with information about the move. 'Last move depth' refers to how many moves ahead the bot searched, and 'last moves considered' displays the moves that the bot considered making during the search
+                        When clicked, the bot will make a move for whoever's turn it currently is. The bottom fields will then be updated with information about the move. 'Last move depth' refers to how many moves ahead the bot searched, and 'last moves considered' displays the moves that the bot considered making during the search. For the first 5 moves of the game, the bot will try and play a 'book' move, which is a predefined opening move. If that is the case, the fields will indicate it
                     </InfoButton>
                 </div>
                 <br />
