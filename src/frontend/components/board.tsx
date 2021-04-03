@@ -5,6 +5,7 @@ import { Piece, getPieceName, getPieceNameShort, EngineCommands, Sounds, EvalMov
 import EngineWorker from "worker-loader!../../engine/engine";
 import EvalWorker from "worker-loader!../../engine/evaluation";
 import { EvaluationBar } from './evaluationBar';
+import { InfoButton } from './infoButton';
 
 interface Props {
 
@@ -557,9 +558,10 @@ export class Board extends React.Component<Props, State> {
     }
 
     debugMoveToText = (move: DebugMoveOutput) => {
+        const score = !this.state.localHistory[this.state.historyIndex].whiteTurn ? move.move.score : -1 * move.move.score;
         const from = getPieceNameShort(move.piece) + indexToNotation(move.move.from);
         const to = indexToNotation(move.move.to);
-        return `${from} ${move.capture ? 'x' : "=>"} ${to} (${move.move.score > 0 ? '+' : ''}${Math.floor(move.move.score)})`;
+        return `${from} ${move.capture ? 'x' : "=>"} ${to} (${score > 0 ? '+' : ''}${Math.floor(score)})`;
     }
 
     updateBotMaxMoveTime = (e: React.ChangeEvent<{}>, value: number | number[]) => {
@@ -578,27 +580,63 @@ export class Board extends React.Component<Props, State> {
         return (
         <div style={{ display: "flex", flexDirection: this.state.width < 900 ? "column-reverse" : "row" }}>
             <div style={{ display: "flex", flexDirection: "column", marginRight: "20px", marginBottom: "50px", minWidth: "250px" }}>
-                <FormControlLabel
-                    control={<Checkbox checked={this.state.showNumbers} onChange={() => this.setState({ showNumbers: !this.state.showNumbers })} name="asd" />}
-                    label={<Typography color="textPrimary">Show Grid Numbers</Typography>}
-                />
-                <FormControlLabel
-                    control={<Checkbox checked={this.state.showValidMoves} onChange={() => this.setState({ showValidMoves: !this.state.showValidMoves })} />}
-                    label={<Typography color="textPrimary">Show Legal Moves</Typography>}
-                />
-                <FormControlLabel
-                    control={<Checkbox checked={this.state.botMoveAutoplay} onChange={() => this.setState({ botMoveAutoplay: !this.state.botMoveAutoplay })} />}
-                    label={<Typography color="textPrimary">Bot Autoplay</Typography>}
-                />
-                <FormControlLabel
-                    control={<Checkbox checked={this.state.playAgainstBot} onChange={() => this.setState({ playAgainstBot: !this.state.playAgainstBot })} />}
-                    label={<Typography color="textPrimary">Play Against Bot</Typography>}
-                />
-                <FormControlLabel
-                    control={<Checkbox checked={this.state.botIterative} onChange={() => this.setState({ botIterative: !this.state.botIterative })} />}
-                    label={<Typography color="textPrimary">Bot Iterative Deepening</Typography>}
-                />
-                <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Max bot move time (seconds)`}</Typography>
+                <div style={{ display: "flex", alignItems: "center" }}>
+                    <Typography variant="h4" color="textSecondary">Bandersnatch</Typography>
+                    <InfoButton title="Welcome">
+                        Start dragging pieces to get started. Explore all the options and feel free to view the brief description of each. The bar underneath the board is the bot's evaluation of the current position (positive being white advantage and negative being black advantage). The evaluation takes about 3-5 seconds to update each time a move is made
+                    </InfoButton>
+                </div>
+                <div>
+                    <FormControlLabel
+                        control={<Checkbox checked={this.state.showNumbers} onChange={() => this.setState({ showNumbers: !this.state.showNumbers })} name="asd" />}
+                        label={<Typography color="textPrimary">Show Grid Numbers</Typography>}
+                    />
+                    <InfoButton title="Show Grid Numbers">
+                        Show the programmatic indexes 0-63 of each square on the board
+                    </InfoButton>
+                </div>
+                <div>
+                    <FormControlLabel
+                        control={<Checkbox checked={this.state.showValidMoves} onChange={() => this.setState({ showValidMoves: !this.state.showValidMoves })} />}
+                        label={<Typography color="textPrimary">Show Legal Moves</Typography>}
+                    />
+                    <InfoButton title="Show Legal Moves">
+                        Highlight the legal moves of each piece in yellow when the piece is picked up
+                    </InfoButton>
+                </div>
+                <div>
+                    <FormControlLabel
+                        control={<Checkbox checked={this.state.botMoveAutoplay} onChange={() => this.setState({ botMoveAutoplay: !this.state.botMoveAutoplay })} />}
+                        label={<Typography color="textPrimary">Bot Autoplay</Typography>}
+                    />
+                    <InfoButton title="Bot Autoplay">
+                        When enabled, after the 'Bot Move' button is clicked, the bot will continue to play against itself
+                    </InfoButton>
+                </div>
+                <div>
+                    <FormControlLabel
+                        control={<Checkbox checked={this.state.playAgainstBot} onChange={() => this.setState({ playAgainstBot: !this.state.playAgainstBot })} />}
+                        label={<Typography color="textPrimary">Play Against Bot</Typography>}
+                    />
+                    <InfoButton title="Play Against Bot">
+                        When enabled, the bot will respond with a move after every human move is made
+                    </InfoButton>
+                </div>
+                <div>
+                    <FormControlLabel
+                        control={<Checkbox checked={this.state.botIterative} onChange={() => this.setState({ botIterative: !this.state.botIterative })} />}
+                        label={<Typography color="textPrimary">Bot Iterative Deepening</Typography>}
+                    />
+                    <InfoButton title="Bot Iterative Deepening">
+                        This setting is recommended to be left on. When enabled, instead of forcing the bot to to search x moves ahead, the bot is given a set amount of time, determined by the slider, to search as far ahead as it can and make its move. If disabled, the bot will search ahead 6 moves, no matter how long it takes.
+                    </InfoButton>
+                </div>
+                <div>
+                    <Typography style={{ lineHeight: "30px", display: "inline-block" }} color="textPrimary">{`Max bot move time (s)`}</Typography>
+                    <InfoButton title="Bot Max Move Time">
+                        The time in seconds allotted for the bot to make its move each turn
+                    </InfoButton>
+                </div>
                 <Slider
                     value={this.state.botMaxMoveTime}
                     disabled={this.state.waitingForMove}
@@ -610,15 +648,40 @@ export class Board extends React.Component<Props, State> {
                     max={10}
                     style={{ marginLeft: "5px", marginTop: "-10px" }}
                 />
-                <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.botMove}>Make a bot move</Button>
+                <div>
+                    <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.botMove}>Make a bot move</Button>
+                    <InfoButton title="Bot Move">
+                        When clicked, the bot will make a move for whoever's turn it currently is. The bottom fields will then be updated with information about the move. 'Last move depth' refers to how many moves ahead the bot searched, and 'last moves considered' displays the moves that the bot considered making during the search
+                    </InfoButton>
+                </div>
                 <br />
-                <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.undoLastMove}>Undo last move</Button>
+                <div>
+                    <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.undoLastMove}>Undo last move</Button>
+                    <InfoButton title="Undo Last Move">
+                        When clicked, the last move that was made will be undone as if it never happened
+                    </InfoButton>
+                </div>
                 <br />
-                <Button disabled={this.state.waitingForMove || historyIndex == 0} variant="contained" onClick={this.historyGoBack}>History go back</Button>
+                <div>
+                    <Button disabled={this.state.waitingForMove || historyIndex == 0} variant="contained" onClick={this.historyGoBack}>History go back</Button>
+                    <InfoButton title="History Go Back">
+                        When clicked or after pressing the left arrow key, the board will go back in the move history. Many actions are unavailable when viewing historical moves
+                    </InfoButton>
+                </div>
                 <br />
-                <Button disabled={this.state.waitingForMove || historyIndex == localHistory.length - 1} variant="contained" onClick={this.historyGoForward}>History go forward</Button>
+                <div>
+                    <Button disabled={this.state.waitingForMove || historyIndex == localHistory.length - 1} variant="contained" onClick={this.historyGoForward}>History go forward</Button>
+                    <InfoButton title="History Go Forwards">
+                        When clicked or after pressing the right arrow key, the board will go forwards in the move history. Many actions are unavailable when viewing historical moves
+                    </InfoButton>
+                </div>
                 <br />
-                <Button variant="contained" onClick={this.printPieceLocations}>Print Piece Locations</Button>
+                <div>
+                    <Button variant="contained" onClick={this.printPieceLocations}>Print Piece Locations</Button>
+                    <InfoButton title="Print Piece Locations">
+                        This is a debugging tool which will print all of the board indexes of each piece into the console
+                    </InfoButton>
+                </div>
                 <br />
                 <hr style={{ width: "100%" }}/>
                 <br />

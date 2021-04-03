@@ -23,7 +23,7 @@ export const createApplicationTheme = memoizeOne(() => {
 			},
 			text: {
 				primary: PALETTE_WHITE,
-				secondary: PALETTE_DARK_WHITE,
+				secondary: PALETTE_LIGHT_BLACK,
 			}
 		},
 		typography: {
@@ -32,7 +32,7 @@ export const createApplicationTheme = memoizeOne(() => {
 		overrides: {
 			MuiPaper: {
 				root: {
-					backgroundColor: PALETTE_LIGHT_BLACK
+					backgroundColor: PALETTE_WHITE
 				}
 			},
 			// MuiCssBaseline: {
