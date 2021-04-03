@@ -634,7 +634,7 @@ export class Board extends React.Component<Props, State> {
                 <div>
                     <Typography style={{ lineHeight: "30px", display: "inline-block" }} color="textPrimary">{`Max bot move time (s)`}</Typography>
                     <InfoButton title="Bot Max Move Time">
-                        The time in seconds allotted for the bot to make its move each turn
+                        The time in seconds allotted for the bot to make its move each turn. 3 seconds is the recommended amount. The less time it has to search, the more likely it is to make a worse move.
                     </InfoButton>
                 </div>
                 <Slider
