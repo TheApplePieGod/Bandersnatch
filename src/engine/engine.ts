@@ -125,6 +125,7 @@ export class Engine {
         //startingFEN = "r1b1kb1r/p2pqppp/2p2n2/4N3/1pBnP3/2N5/PPPP1PPP/R1BQ1RK1 w kq - 0 1"; // PVSearch test
         //startingFEN = "8/2p5/8/KP5r/8/8/8/7k b - - 0 1"; // en passant pin test
         //startingFEN = "8/k7/3p4/p2P1p2/P2P1P2/8/8/K7 w - - 0 1"; // hard endgame draw test
+        //startingFEN = "8/2N4p/1PK3p1/8/4k3/4P3/1r5P/8 b - - 0 1"; // passed pawn detection test
 
         // initialize the hash table (0-63)
         const maxVal: bigInt.BigNumber = bigInt(2).pow(64).minus(1);
@@ -189,6 +190,7 @@ export class Engine {
         this.repetitionHistory = [...historicalBoard.repetitionHistory];
         this.boardHash = this.hashBoard();
         this.savedEvaluations = {};
+        this.boardDelta = [];
         this.evalBestMove = {} as EvalMove;
         this.movesFoundThisTurn = [];
         this.allValidMoves = this.getAllValidMoves();
@@ -1396,6 +1398,7 @@ export class Engine {
                 return true;
             }
         } catch (e) { // if something goes wrong, just cancel
+            this.useHistoricalBoard(this.historicalBoards[this.historicalBoards.length - 1]);
             return false;
         }
 
