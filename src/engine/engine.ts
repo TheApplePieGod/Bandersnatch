@@ -1499,6 +1499,11 @@ const engine = new Engine();
 
 ctx.addEventListener("message", (e) => {
     switch (e.data.command) {
+        case EngineCommands.Ready:
+            ctx.postMessage({
+                command: e.data.command,
+            });
+            break;
         case EngineCommands.RetrieveBoard:
             ctx.postMessage({
                 command: e.data.command,

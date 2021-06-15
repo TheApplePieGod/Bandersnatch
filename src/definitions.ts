@@ -58,6 +58,7 @@ export enum EngineCommands {
     UpdateEval = 9,
     UndoMove = 10,
     UpdateMaxMoveTime = 11,
+    Ready = 12,
 }
 
 export enum EvalCommands {

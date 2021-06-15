@@ -3,6 +3,7 @@ import bigInt from 'big-integer';
 import React from 'react';
 import { Piece, getPieceName, getPieceNameShort, EngineCommands, Sounds, EvalMove, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation } from "../../definitions";
 import EngineWorker from "worker-loader!../../engine/engine";
+import WasmEngine from "worker-loader!../../engine/wasmEngine";
 import EvalWorker from "worker-loader!../../engine/evaluation";
 import { EvaluationBar } from './evaluationBar';
 import { InfoButton } from './infoButton';
@@ -43,6 +44,7 @@ export class Board extends React.Component<Props, State> {
     canvasRef: React.RefObject<HTMLCanvasElement>;
     images: Record<number, HTMLImageElement>;
     engineWorker = new EngineWorker();
+    wasmWorker = new WasmEngine();
     evalWorker = new EvalWorker();
 
     evalTimeout: any = 0;
@@ -77,8 +79,16 @@ export class Board extends React.Component<Props, State> {
             botMaxMoveTime: 3
         };
 
-        this.engineWorker.onmessage = this.handleMessage;
+        this.engine().onmessage = this.handleMessage;
         this.evalWorker.onmessage = this.handleEvalMessage;
+    }
+
+    engine = () => {
+        const isWasm = true;
+        if (isWasm)
+            return this.wasmWorker;
+        else
+            return this.engineWorker;
     }
 
     boardScaleFactor = (width: number) => {
@@ -149,6 +159,9 @@ export class Board extends React.Component<Props, State> {
 
     handleMessage = (e: MessageEvent) => {
         switch (e.data.command) {
+            case EngineCommands.Ready:
+                this.engine().postMessage({ command: EngineCommands.RetrieveBoard });
+                break;
             case EngineCommands.RetrieveBoard:
                 this.localBoard = e.data.board;
                 this.setState({
@@ -252,7 +265,7 @@ export class Board extends React.Component<Props, State> {
                     const checkmate = validMoves.length == 0;
     
                     if (!checkmate && !e.data.draw && this.state.botMoveAutoplay) {
-                        this.engineWorker.postMessage({ command: e.data.command });
+                        this.engine().postMessage({ command: e.data.command });
                     } else {
                         this.setState({ waitingForMove: false });
                     }
@@ -338,7 +351,7 @@ export class Board extends React.Component<Props, State> {
             this.images[key] = img;
         }
 
-        setTimeout(() => this.engineWorker.postMessage({ command: EngineCommands.RetrieveBoard }), 200);
+        setTimeout(() => this.engine().postMessage({ command: EngineCommands.Ready }), 200);
     }
 
     startRendering = () => {
@@ -509,7 +522,7 @@ export class Board extends React.Component<Props, State> {
             if (!this.state.waitingForMove) {
                 const boardIndex = this.getMouseBoardIndex();
                 if (boardIndex != this.draggingIndex)
-                    this.engineWorker.postMessage({ command: EngineCommands.AttemptMove, fromIndex: this.draggingIndex, toIndex: boardIndex });
+                    this.engine().postMessage({ command: EngineCommands.AttemptMove, fromIndex: this.draggingIndex, toIndex: boardIndex });
                 else
                     this.draggingIndex = -1;
             } else {
@@ -521,13 +534,13 @@ export class Board extends React.Component<Props, State> {
 
     historyGoForward = () => {
         if (!this.state.waitingForMove) {
-            this.engineWorker.postMessage({ command: EngineCommands.HistoryGoForward });
+            this.engine().postMessage({ command: EngineCommands.HistoryGoForward });
         }
     }
 
     historyGoBack = () => {
         if (!this.state.waitingForMove) {
-            this.engineWorker.postMessage({ command: EngineCommands.HistoryGoBack });
+            this.engine().postMessage({ command: EngineCommands.HistoryGoBack });
         }
     }
 
@@ -539,7 +552,7 @@ export class Board extends React.Component<Props, State> {
     }
 
     undoLastMove = () => {
-        this.engineWorker.postMessage({ command: EngineCommands.UndoMove });
+        this.engine().postMessage({ command: EngineCommands.UndoMove });
     }
 
     getAllMoves = () => {
@@ -547,13 +560,13 @@ export class Board extends React.Component<Props, State> {
     }
 
     printPieceLocations = () => {
-        this.engineWorker.postMessage({ command: EngineCommands.RetrievePieceLocations });
+        this.engine().postMessage({ command: EngineCommands.RetrievePieceLocations });
     }
 
     botMove = () => {
         if (!this.state.waitingForMove) {
             this.setState({ waitingForMove: true });
-            this.engineWorker.postMessage({ command: this.state.botIterative ? EngineCommands.BotBestMoveIterative : EngineCommands.BotBestMove });
+            this.engine().postMessage({ command: this.state.botIterative ? EngineCommands.BotBestMoveIterative : EngineCommands.BotBestMove });
         }
     }
 
@@ -567,7 +580,7 @@ export class Board extends React.Component<Props, State> {
     updateBotMaxMoveTime = (e: React.ChangeEvent<{}>, value: number | number[]) => {
         if (!this.state.waitingForMove) {
             this.setState({ botMaxMoveTime: value as number });
-            this.engineWorker.postMessage({ command: EngineCommands.UpdateMaxMoveTime, time: (value as number) * 1000 });
+            this.engine().postMessage({ command: EngineCommands.UpdateMaxMoveTime, time: (value as number) * 1000 });
         }
     }
 
