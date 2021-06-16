@@ -67,8 +67,8 @@ export class Board extends React.Component<Props, State> {
             width: window.innerWidth,
             height: window.innerHeight,
             cellSize: Math.floor(Math.min(window.innerWidth * this.boardScaleFactor(window.innerWidth), window.innerHeight * this.boardScaleFactor(window.innerWidth)) / 8),
-            showNumbers: false,
-            showValidMoves: false,
+            showNumbers: true,
+            showValidMoves: true,
             waitingForMove: false,
             botMoveAutoplay: false,
             playAgainstBot: false,
@@ -379,8 +379,8 @@ export class Board extends React.Component<Props, State> {
 
     requestEvaluation = () => {
         if (this.nextBoardToEval != undefined) {
-            this.evalWorker.postMessage({ command: EvalCommands.UpdateState, board: this.nextBoardToEval });
-            this.evalWorker.postMessage({ command: EvalCommands.Evaluate });
+            //this.evalWorker.postMessage({ command: EvalCommands.UpdateState, board: this.nextBoardToEval });
+            //this.evalWorker.postMessage({ command: EvalCommands.Evaluate });
             this.nextBoardToEval = undefined;
         }
     }

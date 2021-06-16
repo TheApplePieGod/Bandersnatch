@@ -57,17 +57,68 @@ export class WasmEngine {
         return board;
     }
 
+    valid_moves = () => {
+        if (!this.initialized) return undefined;
+
+        const moves_ptr = this.wasm_engine.valid_moves_ptr();
+        const moves_len = this.wasm_engine.valid_moves_len();
+        const valid_move_data = new Int32Array(memory.buffer, moves_ptr, moves_len * 4);
+
+        let valid_moves: EvalMove[] = [];
+        for (let i = 0; i < valid_move_data.length; i += 4) {
+            let move: EvalMove = {
+                from: valid_move_data[i],
+                to: valid_move_data[i + 1],
+                data: valid_move_data[i + 2],
+                score: valid_move_data[i + 3],
+            }
+            valid_moves.push(move);
+        }
+
+        return valid_moves;
+    }
+
+    piece_locations = () => {
+        let piece_list: number[] = [];
+
+        if (!this.initialized) return piece_list;
+
+        for (let i = 0; i <= Piece.Pawn_W; i++) {
+            piece_list.push(
+                this.wasm_engine.piece_locations(i)
+            );
+        }
+        return piece_list;
+    }
+
     white_turn = () => {
         if (!this.initialized) return false;
-        return this.wasm_engine.white_turn;
+        return this.wasm_engine.white_turn();
     }
 
     in_check = () => {
-        return false;
+        if (!this.initialized) return false;
+        return this.wasm_engine.in_check();
+    }
+
+    piece_captured_this_turn = () => {
+        if (!this.initialized) return false;
+        return this.wasm_engine.piece_captured_this_turn();
+    }
+
+    castled_this_turn = () => {
+        if (!this.initialized) return false;
+        return this.wasm_engine.castled_this_turn();
     }
 
     check_for_draw = () => {
-        return false;
+        if (!this.initialized) return false;
+        return this.wasm_engine.check_for_draw();
+    }
+
+    calculate_all_possible_moves = (depth: number) => {
+        if (!this.initialized) return 0;
+        return this.wasm_engine.calculate_all_possible_moves(depth);
     }
 
     attempt_move = (from_index: number, to_index: number) => {
@@ -83,6 +134,7 @@ export class WasmEngine {
         this.initialized = true;
 
         this.wasm_engine.parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        //this.wasm_engine.parse_fen("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8");
     }
 }
 
@@ -92,7 +144,7 @@ ctx.addEventListener("message", (e) => {
     switch (e.data.command) {
         case EngineCommands.Ready:
         {
-            // Load the web assembly
+            // Load the web assembly (workaround because regular importing did not seem to work right with webpack 5)
             require('bandersnatch-wasm').then((w: any) => { 
                 wasm = w;
 
@@ -113,7 +165,7 @@ ctx.addEventListener("message", (e) => {
             ctx.postMessage({
                 command: e.data.command,
                 board: engine.board(),
-                validMoves: []
+                validMoves: engine.valid_moves()
             });
             break;
         }
@@ -126,10 +178,10 @@ ctx.addEventListener("message", (e) => {
                 to: e.data.toIndex,
                 whiteTurn: engine.white_turn(),
                 board: result ? { board: engine.board() } : undefined,
-                validMoves: [],
+                validMoves: engine.valid_moves(),
                 inCheck: engine.in_check(),
-                captured: false,
-                castled: false,
+                captured: engine.piece_captured_this_turn(),
+                castled: engine.castled_this_turn(),
                 draw: engine.check_for_draw()
             });
             break;
@@ -195,7 +247,7 @@ ctx.addEventListener("message", (e) => {
         {
             // if (!(engine.moveCount <= 5 && engine.bookMove()))
             //     engine.evalBotMoveIterative();
-            // //console.log(engine.calculateAllPossibleMoves(6));
+            console.log(engine.calculate_all_possible_moves(6));
             // ctx.postMessage({
             //     command: e.data.command,
             //     from: engine.evalBestMove.from,
@@ -215,7 +267,7 @@ ctx.addEventListener("message", (e) => {
             break;
         }
         case EngineCommands.RetrievePieceLocations:
-            //ctx.postMessage({ command: e.data.command, locations: engine.pieceLocations });
+            ctx.postMessage({ command: e.data.command, locations: engine.piece_locations() });
             break;
         case EngineCommands.UpdateMaxMoveTime:
             //engine.searchMaxTime = e.data.time;

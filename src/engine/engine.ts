@@ -112,6 +112,7 @@ export class Engine {
 
         //https://docs.google.com/spreadsheets/d/1fWA-9QW-C8Dc-8LDrEemSligWcprkpKif6cNDs4V_mg/edit#gid=0
         let startingFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        //startingFEN = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8"; // position 5
         //startingFEN = "5ppp/4Ppkp/5ppp/8/6q1/5P2/1K6/8 w - - 0 1"; // king in a box
         //startingFEN = "1rk4r/1pp3pp/p2b4/1n3P2/6P1/2nK4/7P/8 b - - 0 1"; // promotion break
         //startingFEN = "r3kb1r/ppp1pppp/2n5/6B1/4P1n1/2N5/PPP2PPP/R2K2NR w - - 0 1"; // fork
@@ -676,11 +677,9 @@ export class Engine {
 
         if (movingPiece == Piece.Pawn_W && fromIndex - toIndex == 16) { // moving two spaces up
             this.enPassantSquare = fromIndex - 8;
-            this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1 });
         }
         else if (movingPiece == Piece.Pawn_B && toIndex - fromIndex == 16) { // moving two spaces down
             this.enPassantSquare = fromIndex + 8;
-            this.boardDelta.push({ index: -1, piece: Piece.Empty, target: -1 });
         }
         else {
             this.enPassantSquare = -1;
@@ -715,6 +714,7 @@ export class Engine {
     unmakeMove = (deltas: BoardDelta[]) => {
         this.whiteTurn = !this.whiteTurn;
 
+        // todo: optimize this splice stuff throughout
         for (let i = 0; i < deltas.length; i++) {
             if (deltas[i].piece != Piece.Empty) { // ignore any empty piece entries
                 if (deltas[i].index == -1) { // if the original index is -1, it means the piece was created from promotion, so remove the piece
@@ -1589,7 +1589,7 @@ ctx.addEventListener("message", (e) => {
         {
             if (!(engine.moveCount <= 5 && engine.bookMove()))
                 engine.evalBotMoveIterative();
-            //console.log(engine.calculateAllPossibleMoves(6));
+            //console.log(engine.calculateAllPossibleMoves(5));
             ctx.postMessage({
                 command: e.data.command,
                 from: engine.evalBestMove.from,
