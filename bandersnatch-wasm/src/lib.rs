@@ -1,7 +1,7 @@
 mod utils;
 
 use wasm_bindgen::prelude::*;
-use std::{cmp::{Ordering, max, min}, intrinsics::transmute, mem::swap, usize, vec};
+use std::{cmp::{max, min}, mem::swap, usize, vec};
 
 use bitflags::bitflags;
 use rand::Rng;
@@ -225,7 +225,9 @@ pub struct Engine {
     best_move: EvalMove,
     best_move_this_iteration: EvalMove,
     search_start_time: u32,
+    search_max_time: u32,
     time_taken_last_turn: u32,
+    depth_searched_last_turn: i32,
 }
 
 #[wasm_bindgen]
@@ -315,7 +317,9 @@ impl Engine {
             best_move: Default::default(),
             best_move_this_iteration: Default::default(),
             search_start_time: 0,
+            search_max_time: 3000,
             time_taken_last_turn: 0,
+            depth_searched_last_turn: 0,
         }
     }
 
@@ -751,6 +755,7 @@ impl Engine {
 
     pub fn check_for_draw(&self) -> bool {
         if self.move_rep_count >= 50 {
+            log("draw by 50 move rep");
             return true;
         }
 
@@ -768,6 +773,7 @@ impl Engine {
                 count += 1;
             }
             if count == 3 {
+                log("draw by threefold rep");
                 return true; // threefold rep
             }
         }
@@ -951,110 +957,282 @@ impl Engine {
         let xy_max: i32 = 7;
         let is_white = piece as u8 >= 7;
 
-        let trace_lines = |engine: &mut Engine, valid_squares: &mut Vec<usize>| {
-            engine.trace_valid_squares( // right
-                index,
-                1,
-                0,
-                is_white,
-                false,
-                update_pins,
-                x,
-                y,
-                valid_squares
-            );
-            engine.trace_valid_squares( // left
-                index,
-                -1,
-                0,
-                is_white,
-                false,
-                update_pins,
-                x,
-                y,
-                valid_squares
-            );
-            engine.trace_valid_squares( // down
-                index,
-                0,
-                1,
-                is_white,
-                false,
-                update_pins,
-                x,
-                y,
-                valid_squares
-            );
-            engine.trace_valid_squares( // up
-                index,
-                0,
-                -1,
-                is_white,
-                false,
-                update_pins,
-                x,
-                y,
-                valid_squares
-            );
-        };
+        // let trace_lines = |engine: &mut Engine, valid_squares: &mut Vec<usize>| {
+        //     engine.trace_valid_squares( // right
+        //         index,
+        //         1,
+        //         0,
+        //         is_white,
+        //         false,
+        //         update_pins,
+        //         x,
+        //         y,
+        //         valid_squares
+        //     );
+        //     engine.trace_valid_squares( // left
+        //         index,
+        //         -1,
+        //         0,
+        //         is_white,
+        //         false,
+        //         update_pins,
+        //         x,
+        //         y,
+        //         valid_squares
+        //     );
+        //     engine.trace_valid_squares( // down
+        //         index,
+        //         0,
+        //         1,
+        //         is_white,
+        //         false,
+        //         update_pins,
+        //         x,
+        //         y,
+        //         valid_squares
+        //     );
+        //     engine.trace_valid_squares( // up
+        //         index,
+        //         0,
+        //         -1,
+        //         is_white,
+        //         false,
+        //         update_pins,
+        //         x,
+        //         y,
+        //         valid_squares
+        //     );
+        // };
 
-        let trace_diagonals = |engine: &mut Engine, valid_squares: &mut Vec<usize>| {
-            engine.trace_valid_squares( // up right
-                index,
-                1,
-                -1,
-                is_white,
-                false,
-                update_pins,
-                x,
-                y,
-                valid_squares
-            );
-            engine.trace_valid_squares( // up left
-                index,
-                -1,
-                -1,
-                is_white,
-                false,
-                update_pins,
-                x,
-                y,
-                valid_squares
-            );
-            engine.trace_valid_squares( // down right
-                index,
-                1,
-                1,
-                is_white,
-                false,
-                update_pins,
-                x,
-                y,
-                valid_squares
-            );
-            engine.trace_valid_squares( // down left
-                index,
-                -1,
-                1,
-                is_white,
-                false,
-                update_pins,
-                x,
-                y,
-                valid_squares
-            );
-        };
+        // let trace_diagonals = |engine: &mut Engine, valid_squares: &mut Vec<usize>| {
+        //     engine.trace_valid_squares( // up right
+        //         index,
+        //         1,
+        //         -1,
+        //         is_white,
+        //         false,
+        //         update_pins,
+        //         x,
+        //         y,
+        //         valid_squares
+        //     );
+        //     engine.trace_valid_squares( // up left
+        //         index,
+        //         -1,
+        //         -1,
+        //         is_white,
+        //         false,
+        //         update_pins,
+        //         x,
+        //         y,
+        //         valid_squares
+        //     );
+        //     engine.trace_valid_squares( // down right
+        //         index,
+        //         1,
+        //         1,
+        //         is_white,
+        //         false,
+        //         update_pins,
+        //         x,
+        //         y,
+        //         valid_squares
+        //     );
+        //     engine.trace_valid_squares( // down left
+        //         index,
+        //         -1,
+        //         1,
+        //         is_white,
+        //         false,
+        //         update_pins,
+        //         x,
+        //         y,
+        //         valid_squares
+        //     );
+        // };
 
         match piece {
             Piece::Rook_W | Piece::Rook_B => {
-                trace_lines(self, in_array);
+                self.trace_valid_squares( // right
+                    index,
+                    1,
+                    0,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // left
+                    index,
+                    -1,
+                    0,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // down
+                    index,
+                    0,
+                    1,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // up
+                    index,
+                    0,
+                    -1,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
             },
             Piece::Queen_W | Piece::Queen_B => {
-                trace_lines(self, in_array);
-                trace_diagonals(self, in_array);
+                self.trace_valid_squares( // right
+                    index,
+                    1,
+                    0,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // left
+                    index,
+                    -1,
+                    0,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // down
+                    index,
+                    0,
+                    1,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // up
+                    index,
+                    0,
+                    -1,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // up right
+                    index,
+                    1,
+                    -1,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // up left
+                    index,
+                    -1,
+                    -1,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // down right
+                    index,
+                    1,
+                    1,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // down left
+                    index,
+                    -1,
+                    1,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
             },
             Piece::Bishop_W | Piece::Bishop_B => {
-                trace_diagonals(self, in_array);
+                self.trace_valid_squares( // up right
+                    index,
+                    1,
+                    -1,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // up left
+                    index,
+                    -1,
+                    -1,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // down right
+                    index,
+                    1,
+                    1,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
+                self.trace_valid_squares( // down left
+                    index,
+                    -1,
+                    1,
+                    is_white,
+                    false,
+                    update_pins,
+                    x,
+                    y,
+                    in_array
+                );
             },
             Piece::Pawn_W | Piece::Pawn_B => {
                 let mut to: usize = 0;
@@ -1493,12 +1671,12 @@ impl Engine {
             moves[i].score = score;
 
             let mut index = i;
-            for j in 0..len {
-                if moves[index].score > moves[j].score && index != j {
-                    moves.swap(index, j);
-                    index = j + 1;
-                }
+            let mut current_elem = moves[index];
+            while index > 0 && current_elem.score > moves[index - 1].score {
+                moves[index] = moves[index - 1];
+                index -= 1;
             }
+            moves[index] = current_elem;
         }
 
         //moves.sort_by_key(|a| a.score);
@@ -1508,11 +1686,14 @@ impl Engine {
         let mut alpha = alpha;
         let mut beta = beta;
 
+        if can_cancel && now("") - self.search_start_time >= self.search_max_time {
+            return 0;
+        }
+
         if depth <= 0 {
            return self.quiescence_search(alpha, beta);
            //return self.evaluate();
         }
-
 
         if offset > 0 {
             // detect any repetition and assume a draw is coming (return a 0 draw score)
@@ -1663,6 +1844,36 @@ impl Engine {
         alpha
     }
 
+    pub fn find_best_move_iterative(&mut self) {
+        self.search_start_time = now("");
+        let max_depth = 30;
+        let mut last_completed_depth = 0;
+
+        for i in 1..=max_depth {
+            self.find_best_move(
+                true,
+                i,
+                0,
+                i32::MIN,
+                i32::MAX
+            );
+
+            if now("") - self.search_start_time >= self.search_max_time { // search aborted so dont update move
+                break;
+            }
+
+            last_completed_depth = i;
+            self.best_move = self.best_move_this_iteration;
+            //ctx.postMessage({ command: EvalCommands.ReceiveCurrentEval, eval: this.whiteTurn ? this.evalBestMove.score : -1 * this.evalBestMove.score });
+
+            if self.best_move.score >= 99999999 { // mate
+                break;
+            }
+        }
+
+        self.depth_searched_last_turn = last_completed_depth;
+    }
+
     // search until the position is 'quiet' (no captures remaining)
     pub fn quiescence_search(&mut self, alpha: i32, beta: i32) -> i32 {
         let evaluation = self.evaluate(); // evaluate first to prevent forcing a bad capture when there may have been better non capture moves
@@ -1735,7 +1946,7 @@ impl Engine {
             return;
         }
 
-        self.search_start_time = now("");
+        let start_time = now("");
 
         self.find_best_move(
             false,
@@ -1749,6 +1960,39 @@ impl Engine {
             return;
         } else {
             self.best_move = self.best_move_this_iteration;
+        }
+
+        self.depth_searched_last_turn = depth;
+        self.castled_this_turn = self.update_castle_status(
+            self.best_move.from as usize,
+            self.best_move.to as usize
+        );
+        self.piece_captured_this_turn = self.board[self.best_move.to as usize] != Piece::Empty;
+        self.force_make_move(
+            self.best_move.from as usize,
+            &MoveInfo {
+                index: self.best_move.to as usize,
+                data: Piece::from_num(self.best_move.data)
+            },
+            true
+        );
+
+        let time_elapsed = now("") - start_time;
+        self.time_taken_last_turn = time_elapsed; // ms
+    }
+
+    pub fn eval_bot_move_iterative(&mut self) {
+        if self.check_for_draw() {
+            return;
+        }
+
+        let start_time = now("");
+        let last_move = self.best_move;
+
+        self.find_best_move_iterative();
+        if self.best_move.to == last_move.to && self.best_move.from == last_move.from { // repeating the same move from the last evaluatioin
+            log("Attempting to make the same move, aborting");
+            return;
         }
 
         self.castled_this_turn = self.update_castle_status(
@@ -1765,7 +2009,7 @@ impl Engine {
             true
         );
 
-        let time_elapsed = now("") - self.search_start_time;
+        let time_elapsed = now("") - start_time;
         self.time_taken_last_turn = time_elapsed; // ms
     }
 
@@ -1847,5 +2091,9 @@ impl Engine {
 
     pub fn time_taken_last_turn(&self) -> u32 {
         self.time_taken_last_turn
+    }
+
+    pub fn depth_searched_last_turn(&self) -> i32 {
+        self.depth_searched_last_turn
     }
 }

@@ -121,6 +121,11 @@ export class WasmEngine {
         return this.wasm_engine.time_taken_last_turn();
     }
 
+    depth_searched_last_turn = () => {
+        if (!this.initialized) return 0;
+        return this.wasm_engine.depth_searched_last_turn();
+    }
+
     check_for_draw = () => {
         if (!this.initialized) return false;
         return this.wasm_engine.check_for_draw();
@@ -134,6 +139,11 @@ export class WasmEngine {
     eval_bot_move = (depth: number) => {
         if (!this.initialized) return;
         return this.wasm_engine.eval_bot_move(depth);
+    }
+
+    eval_bot_move_iterative = () => {
+        if (!this.initialized) return;
+        return this.wasm_engine.eval_bot_move_iterative();
     }
 
     attempt_move = (from_index: number, to_index: number) => {
@@ -150,6 +160,7 @@ export class WasmEngine {
 
         this.wasm_engine.parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         //this.wasm_engine.parse_fen("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8");
+        //this.wasm_engine.parse_fen("r1b1kb1r/pp2q1pp/2p4n/3p1P2/3Q4/2NBB3/PPP2PPP/R3K2R w KQkq - 2 10");
     }
 }
 
@@ -248,7 +259,7 @@ ctx.addEventListener("message", (e) => {
                 from: engine.best_move().from,
                 to: engine.best_move().to,
                 timeTaken: engine.time_taken_last_turn(),
-                depthSearched: 0,
+                depthSearched: engine.depth_searched_last_turn(),
                 opening: "",
                 movesFound: [],
                 whiteTurn: engine.white_turn(),
@@ -264,24 +275,26 @@ ctx.addEventListener("message", (e) => {
         case EngineCommands.BotBestMoveIterative:
         {
             // if (!(engine.moveCount <= 5 && engine.bookMove()))
-            //     engine.evalBotMoveIterative();
-            console.log(engine.calculate_all_possible_moves(3));
-            // ctx.postMessage({
-            //     command: e.data.command,
-            //     from: engine.evalBestMove.from,
-            //     to: engine.evalBestMove.to,
-            //     timeTaken: engine.timeTakenLastTurn,
-            //     depthSearched: engine.depthSearchedThisTurn,
-            //     opening: engine.currentOpening,
-            //     movesFound: engine.movesFoundThisTurn,
-            //     whiteTurn: engine.whiteTurn,
-            //     board: engine.historicalBoards[engine.historicalBoards.length - 1],
-            //     validMoves: engine.allValidMoves,
-            //     inCheck: engine.inCheck,
-            //     captured: engine.pieceCapturedThisTurn,
-            //     castled: engine.castledThisTurn,
-            //     draw: engine.checkForDraw()
-            // });
+                 engine.eval_bot_move_iterative();
+            //console.log(engine.calculate_all_possible_moves(3));
+
+            let board = engine.board();
+            ctx.postMessage({
+                command: e.data.command,
+                from: engine.best_move().from,
+                to: engine.best_move().to,
+                timeTaken: engine.time_taken_last_turn(),
+                depthSearched: engine.depth_searched_last_turn(),
+                opening: "",
+                movesFound: [],
+                whiteTurn: engine.white_turn(),
+                board: { board: board ? [...board] : undefined },
+                validMoves: engine.valid_moves(),
+                inCheck: engine.in_check(),
+                captured: engine.piece_captured_this_turn(),
+                castled: engine.castled_this_turn(),
+                draw: engine.check_for_draw()
+            });
             break;
         }
         case EngineCommands.RetrievePieceLocations:

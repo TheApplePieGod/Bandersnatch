@@ -127,6 +127,7 @@ export class Engine {
         //startingFEN = "8/2p5/8/KP5r/8/8/8/7k b - - 0 1"; // en passant pin test
         //startingFEN = "8/k7/3p4/p2P1p2/P2P1P2/8/8/K7 w - - 0 1"; // hard endgame draw test
         //startingFEN = "8/2N4p/1PK3p1/8/4k3/4P3/1r5P/8 b - - 0 1"; // passed pawn detection test
+        //startingFEN = "r1b1kb1r/pp2q1pp/2p4n/3p1P2/3Q4/2NBB3/PPP2PPP/R3K2R w KQkq - 2 10";
 
         // initialize the hash table (0-63)
         const maxVal: bigInt.BigNumber = bigInt(2).pow(64).minus(1);
@@ -1048,6 +1049,14 @@ export class Engine {
             }
 
             moves[i].score = score;
+
+            // let index = i;
+            // let current_elem = moves[index];
+            // while (index > 0 && current_elem.score > moves[index - 1].score) {
+            //     moves[index] = moves[index - 1];
+            //     index -= 1;
+            // }
+            // moves[index] = current_elem;
         }
 
         moves.sort((a, b) => {
@@ -1571,7 +1580,7 @@ ctx.addEventListener("message", (e) => {
         }
         case EngineCommands.BotBestMoveIterative:
         {
-            if (!(engine.moveCount <= 5 && engine.bookMove()))
+            //if (!(engine.moveCount <= 5 && engine.bookMove()))
                 engine.evalBotMoveIterative();
             //console.log(engine.calculateAllPossibleMoves(5));
             ctx.postMessage({
