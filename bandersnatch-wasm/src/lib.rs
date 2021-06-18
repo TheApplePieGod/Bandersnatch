@@ -1,7 +1,7 @@
 mod utils;
 
 use wasm_bindgen::prelude::*;
-use std::{collections::HashMap, intrinsics::transmute, mem::swap, usize, vec};
+use std::{cmp::{Ordering, max, min}, intrinsics::transmute, mem::swap, usize, vec};
 
 use bitflags::bitflags;
 use rand::Rng;
@@ -18,6 +18,10 @@ extern {
 
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
+
+    // workaround to perf.now() in webworkers
+    #[wasm_bindgen(js_namespace = ["self", "performance"])]
+    fn now(s: &str) -> u32;
 }
 
 #[wasm_bindgen]
@@ -44,6 +48,26 @@ pub enum Piece {
     Bishop_W = 10,
     Knight_W = 11,
     Pawn_W = 12
+}
+
+impl Piece {
+    pub fn from_num(num: i32) -> Piece {
+        match num {
+            1 => Piece::King_B,
+            2 => Piece::Queen_B,
+            3 => Piece::Rook_B,
+            4 => Piece::Bishop_B,
+            5 => Piece::Knight_B,
+            6 => Piece::Pawn_B,
+            7 => Piece::King_W,
+            8 => Piece::Queen_W,
+            9 => Piece::Rook_W,
+            10 => Piece::Bishop_W,
+            11 => Piece::Knight_W,
+            12 => Piece::Pawn_W,
+            _ => Piece::Empty
+        }
+    }
 }
 
 pub struct Value;
@@ -83,6 +107,7 @@ pub struct MoveInfo {
 
 // keep everything as i32 for easy reading in js
 #[wasm_bindgen]
+#[derive(Default, Clone, Copy)]
 pub struct EvalMove {
     from: i32,
     to: i32,
@@ -91,8 +116,92 @@ pub struct EvalMove {
 }
 
 #[wasm_bindgen]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SavedEvalType {
+    Exact = 0,
+    Alpha = 1,
+    Beta = 2
+}
+
+#[wasm_bindgen]
+pub struct EvaluationData {
+    total_moves: i32,
+    eval: i32,
+    best_move: EvalMove,
+    depth: i32,
+    saved_type: SavedEvalType,
+}
+
+const PAWN_SQUARE_TABLE: [i32; 64] = [
+    0,  0,  0,  0,  0,  0,  0,  0,
+    50, 50, 50, 50, 50, 50, 50, 50,
+    10, 10, 20, 30, 30, 20, 10, 10,
+    5,  5, 10, 25, 25, 10,  5,  5,
+    0,  0,  0, 20, 20,  0,  0,  0,
+    5, -5,-10,  0,  0,-10, -5,  5,
+    5, 10, 10,-20,-20, 10, 10,  5,
+    0,  0,  0,  0,  0,  0,  0,  0
+];
+
+const KNIGHT_SQUARE_TABLE: [i32; 64] = [
+    -50,-40,-30,-30,-30,-30,-40,-50,
+    -40,-20,  0,  0,  0,  0,-20,-40,
+    -30,  0, 10, 15, 15, 10,  0,-30,
+    -30,  5, 15, 20, 20, 15,  5,-30,
+    -30,  0, 15, 20, 20, 15,  0,-30,
+    -30,  5, 10, 15, 15, 10,  5,-30,
+    -40,-20,  0,  5,  5,  0,-20,-40,
+    -50,-40,-30,-30,-30,-30,-40,-50,
+];
+
+const BISHOP_SQUARE_TABLE: [i32; 64] = [
+    -20,-10,-10,-10,-10,-10,-10,-20,
+    -10,  0,  0,  0,  0,  0,  0,-10,
+    -10,  0,  5, 10, 10,  5,  0,-10,
+    -10,  5,  5, 10, 10,  5,  5,-10,
+    -10,  0, 10, 10, 10, 10,  0,-10,
+    -10, 10, 10, 10, 10, 10, 10,-10,
+    -10,  5,  0,  0,  0,  0,  5,-10,
+    -20,-10,-10,-10,-10,-10,-10,-20,
+];
+
+const ROOK_SQUARE_TABLE: [i32; 64] = [
+    0,  0,  0,  0,  0,  0,  0,  0,
+    5, 10, 10, 10, 10, 10, 10,  5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    0,  0,  0,  5,  5,  0,  0,  0
+];
+
+const QUEEN_SQUARE_TABLE: [i32; 64] = [
+    -20,-10,-10, -5, -5,-10,-10,-20,
+    -10,  0,  0,  0,  0,  0,  0,-10,
+    -10,  0,  5,  5,  5,  5,  0,-10,
+    -5,  0,  5,  5,  5,  5,  0, -5,
+    0,  0,  5,  5,  5,  5,  0, -5,
+    -10,  5,  5,  5,  5,  5,  0,-10,
+    -10,  0,  5,  0,  0,  0,  0,-10,
+    -20,-10,-10, -5, -5,-10,-10,-20
+];
+
+const KING_MIDDLE_GAME_SQUARE_TABLE: [i32; 64] = [
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -20,-30,-30,-40,-40,-30,-30,-20,
+    -10,-20,-20,-20,-20,-20,-20,-10,
+    20, 20,  0,  0,  0,  0, 20, 20,
+    20, 30, 10,  0,  0, 10, 30, 20
+];
+
+#[wasm_bindgen]
 pub struct Engine {
-    fen_to_piece_map: HashMap<String, Piece>,
+    fen_to_piece_map: hashbrown::HashMap<String, Piece>,
     zobrist_hash_table: Vec<Vec<u64>>,
 
     board: [Piece; 64],
@@ -107,11 +216,16 @@ pub struct Engine {
     piece_locations: Vec<Vec<usize>>,
     pinned_pieces: Vec<usize>,
     repetition_history: Vec<u64>,
+    saved_evaluations: hashbrown::HashMap<u64, EvaluationData>,
 
     castled_this_turn: bool,
     piece_captured_this_turn: bool,
     in_check: bool,
     all_valid_moves: Vec<EvalMove>,
+    best_move: EvalMove,
+    best_move_this_iteration: EvalMove,
+    search_start_time: u32,
+    time_taken_last_turn: u32,
 }
 
 #[wasm_bindgen]
@@ -192,11 +306,16 @@ impl Engine {
             ],
             pinned_pieces: vec![],
             repetition_history: vec![],
+            saved_evaluations: hashbrown::HashMap::new(),
 
             castled_this_turn: false,
             piece_captured_this_turn: false,
             in_check: false,
             all_valid_moves: vec![],
+            best_move: Default::default(),
+            best_move_this_iteration: Default::default(),
+            search_start_time: 0,
+            time_taken_last_turn: 0,
         }
     }
 
@@ -352,6 +471,7 @@ impl Engine {
         self.board_deltas.clear();
         self.all_valid_moves = self.get_all_valid_moves(false, &mut vec![]);
         self.in_check = self.is_in_check(self.white_turn);
+        self.saved_evaluations.clear();
 
         self.move_count += 1;
         self.move_rep_count += 1;
@@ -377,7 +497,7 @@ impl Engine {
 
         // promotion check
         let mut promoted = false;
-        let y: usize = (to_index as f64 * 0.125) as usize; // 0.125 = 1/8
+        let y: usize = (to_index as f32 * 0.125) as usize; // 0.125 = 1/8
         if moving_piece == Piece::Pawn_W && y == 0 {
             self.board[to_index] = move_info.data;
             self.remove_piece(Piece::Pawn_W, from_index);
@@ -501,7 +621,7 @@ impl Engine {
                     piece: self.board[61],
                     target: -1
                 });
-                self.remove_piece(Piece::Rook_W, 63);
+                self.move_piece(Piece::Rook_W, 63, 61);
                 self.board[63] = Piece::Empty;
                 self.board[61] = Piece::Rook_W;
                 castled = true;
@@ -516,7 +636,7 @@ impl Engine {
                     piece: self.board[59],
                     target: -1
                 });
-                self.remove_piece(Piece::Rook_W, 56);
+                self.move_piece(Piece::Rook_W, 56, 59);
                 self.board[56] = Piece::Empty;
                 self.board[59] = Piece::Rook_W;
                 castled = true;
@@ -536,7 +656,7 @@ impl Engine {
                     piece: self.board[5],
                     target: -1
                 });
-                self.remove_piece(Piece::Rook_B, 7);
+                self.move_piece(Piece::Rook_B, 7, 5);
                 self.board[7] = Piece::Empty;
                 self.board[5] = Piece::Rook_B;
                 castled = true;
@@ -551,14 +671,14 @@ impl Engine {
                     piece: self.board[3],
                     target: -1
                 });
-                self.remove_piece(Piece::Rook_B, 0);
+                self.move_piece(Piece::Rook_B, 0, 3);
                 self.board[0] = Piece::Empty;
                 self.board[3] = Piece::Rook_B;
                 castled = true;
             }
 
             self.castle_status &= !CastleStatus::BLACK_KING;
-            self.castle_status &= !CastleStatus::WHITE_QUEEN;
+            self.castle_status &= !CastleStatus::BLACK_QUEEN;
         } else if moving_piece == Piece::Rook_W && from_index == 56 {
             self.castle_status &= !CastleStatus::WHITE_QUEEN;
         } else if moving_piece == Piece::Rook_W && from_index == 63 {
@@ -657,21 +777,11 @@ impl Engine {
 
     pub fn get_piece_value(piece: Piece) -> i32 {
         match piece {
-            Piece::Queen_W => Value::QUEEN,
-            Piece::Queen_B => Value::QUEEN,
-
-            Piece::Rook_W => Value::ROOK,
-            Piece::Rook_B => Value::ROOK,
-
-            Piece::Bishop_W => Value::BISHOP,
-            Piece::Bishop_B => Value::BISHOP,
-
-            Piece::Knight_W => Value::KNIGHT,
-            Piece::Knight_B => Value::KNIGHT,
-
-            Piece::Pawn_W => Value::PAWN,
-            Piece::Pawn_B => Value::PAWN,
-
+            Piece::Queen_W | Piece::Queen_B => Value::QUEEN,
+            Piece::Rook_W | Piece::Rook_B => Value::ROOK,
+            Piece::Bishop_W | Piece::Bishop_B => Value::BISHOP,
+            Piece::Knight_W | Piece::Knight_B => Value::KNIGHT,
+            Piece::Pawn_W | Piece::Pawn_B => Value::PAWN,
             _ => 0
         }
     }
@@ -682,10 +792,72 @@ impl Engine {
         let start_index = if white { 8 } else { 2 };
         let end_index = if white {12 } else { 6 };
         for i in start_index..=end_index {
-            value += Engine::get_piece_value(unsafe { transmute(i as u8) }) * self.piece_locations[i as usize].len() as i32; // convert index to a piece (should always be defined and safe here)
+            value += Engine::get_piece_value(Piece::from_num(i)) * self.piece_locations[i as usize].len() as i32; // convert index to a piece (should always be defined and safe here)
         }
 
         value
+    }
+
+    fn read_square_table_value(index: usize, table: &[i32], white: bool) -> i32 {
+        if !white {
+            return table[63 - index];
+        }
+        table[index]
+    }
+
+    fn evaluate_square_table(&self, piece: Piece, table: &[i32], white: bool) -> i32 {
+        if piece == Piece::Empty {
+            return 0;
+        }
+
+        let mut value = 0;
+        for pos in self.piece_locations[piece as usize].iter() {
+            value += Engine::read_square_table_value(
+                *pos,
+                table,
+                white
+            );
+        }
+
+        value
+    }
+
+    fn evaluate_square_tables(&self, white: bool, endgame_weight: f32) -> i32 {
+        let mut value = 0;
+
+        // ugly
+        if white {
+            value += self.evaluate_square_table(Piece::Pawn_W, &PAWN_SQUARE_TABLE, white);
+            value += self.evaluate_square_table(Piece::Rook_W, &ROOK_SQUARE_TABLE, white);
+            value += self.evaluate_square_table(Piece::Knight_W, &KNIGHT_SQUARE_TABLE, white);
+            value += self.evaluate_square_table(Piece::Bishop_W, &BISHOP_SQUARE_TABLE, white);
+            value += self.evaluate_square_table(Piece::Queen_W, &QUEEN_SQUARE_TABLE, white);
+            let king_mid_game_value = self.evaluate_square_table(Piece::King_W, &KING_MIDDLE_GAME_SQUARE_TABLE, white);
+            value += (king_mid_game_value as f32 * (1.0 - endgame_weight)) as i32;
+        } else {
+            value += self.evaluate_square_table(Piece::Pawn_B, &PAWN_SQUARE_TABLE, white);
+            value += self.evaluate_square_table(Piece::Rook_B, &ROOK_SQUARE_TABLE, white);
+            value += self.evaluate_square_table(Piece::Knight_B, &KNIGHT_SQUARE_TABLE, white);
+            value += self.evaluate_square_table(Piece::Bishop_B, &BISHOP_SQUARE_TABLE, white);
+            value += self.evaluate_square_table(Piece::Queen_B, &QUEEN_SQUARE_TABLE, white);
+            let king_mid_game_value = self.evaluate_square_table(Piece::King_B, &KING_MIDDLE_GAME_SQUARE_TABLE, white);
+            value += (king_mid_game_value as f32 * (1.0 - endgame_weight)) as i32;
+        }
+
+        value
+    }
+
+    fn evaluate_end_game_position(endgame_weight: f32, op_king_x: i32, op_king_y: i32, distance: i32) -> i32 {
+        let mut score = 0;
+
+        // try to push the enemy king into the corner
+        let dist_to_center = i32::abs(op_king_x - 4) + i32::abs(op_king_y - 4);
+        score += dist_to_center;
+
+        // try and move kings together
+        score += 14 - distance;
+
+        (score as f32  * 20.0 * endgame_weight) as i32
     }
 
     pub fn evaluate(&self) -> i32 {
@@ -697,8 +869,23 @@ impl Engine {
         let white_material_no_pawns = white_material - self.piece_locations[Piece::Pawn_W as usize].len() as i32 * Engine::get_piece_value(Piece::Pawn_W);
         let black_material_no_pawns = black_material - self.piece_locations[Piece::Pawn_B as usize].len() as i32 * Engine::get_piece_value(Piece::Pawn_B);
 
+        let endgame_material_threshold = (Value::ROOK * 2) + Value::BISHOP + Value::KNIGHT;
+        let white_end_game_weight = 1.0 - f32::min(1.0, white_material_no_pawns as f32 / endgame_material_threshold as f32);
+        let black_end_game_weight = 1.0 - f32::min(1.0, black_material_no_pawns as f32 / endgame_material_threshold as f32);
+
         let mut white_eval = white_material * material_weight;
         let mut black_eval = black_material * material_weight;
+
+        white_eval += self.evaluate_square_tables(true, white_end_game_weight) * development_weight;
+        black_eval += self.evaluate_square_tables(false, white_end_game_weight) * development_weight;
+
+        let white_x = (self.piece_locations[Piece::King_W as usize][0] % 8) as i32;
+        let white_y = (self.piece_locations[Piece::King_W as usize][0] as f32 * 0.125) as i32;
+        let black_x = (self.piece_locations[Piece::King_B as usize][0] % 8) as i32;
+        let black_y = (self.piece_locations[Piece::King_B as usize][0] as f32 * 0.125) as i32;
+        let distance_between = i32::abs(white_x - black_x) + i32::abs(white_y - black_y);
+        white_eval += Engine::evaluate_end_game_position(white_end_game_weight, black_x, black_y, distance_between);
+        black_eval += Engine::evaluate_end_game_position(black_end_game_weight, white_x, white_y, distance_between);
 
         let mut evaluation = white_eval - black_eval;
         if !self.white_turn {
@@ -760,7 +947,7 @@ impl Engine {
 
     fn get_valid_squares(&mut self, index: usize, piece: Piece, attack_only: bool, update_pins: bool, in_array: &mut Vec<usize>) {
         let x = index as i32 % 8;
-        let y = (index as f64 * 0.125) as i32; // 0.125 = 1/8
+        let y = (index as f32 * 0.125) as i32; // 0.125 = 1/8
         let xy_max: i32 = 7;
         let is_white = piece as u8 >= 7;
 
@@ -955,7 +1142,7 @@ impl Engine {
                 }
                 self.get_valid_squares(
                     self.piece_locations[i][j],
-                    unsafe { transmute(i as u8) },
+                    Piece::from_num(i as i32),
                     true,
                     update_pins,
                     in_array
@@ -1109,7 +1296,7 @@ impl Engine {
         let mut local_attacked: Vec<usize> = vec![];
         for i in start_index..=end_index {
             let len = self.piece_locations[i].len();
-            let piece: Piece = unsafe { transmute(i as u8) };
+            let piece: Piece = Piece::from_num(i as i32);
 
             for j in 0..len {
                 let location = self.piece_locations[i][j];
@@ -1162,7 +1349,7 @@ impl Engine {
                     }
 
                     // add more moves to account for promoting to various pieces
-                    let y: usize = (checking_index as f64 * 0.125) as usize;
+                    let y: usize = (checking_index as f32 * 0.125) as usize;
                     if piece == Piece::Pawn_W && y == 0 {
                         all_valid.push(EvalMove {
                             from: location as i32,
@@ -1253,16 +1440,12 @@ impl Engine {
                 valid_moves[i].from as usize,
                 &MoveInfo {
                     index: valid_moves[i].to as usize,
-                    data: unsafe { transmute(valid_moves[i].data as u8) }
+                    data: Piece::from_num(i as i32)
                 },
                 false
             );
 
             let mut stored_deltas = vec![];
-            // for elem in self.board_deltas.iter() {
-            //     stored_deltas.push(*elem);
-            // }
-            // self.board_deltas.clear();
             swap(&mut stored_deltas, &mut self.board_deltas);
 
             self.white_turn = !self.white_turn;
@@ -1282,6 +1465,308 @@ impl Engine {
         }
 
         total_moves
+    }
+
+    fn predict_and_order_moves(&self, moves: &mut Vec<EvalMove>, attacked_squares: &Vec<usize>) {
+        let len = moves.len();
+
+        for i in 0..len {
+            let mut score = 0;
+            let moving_piece = self.board[moves[i].from as usize];
+            let capturing_piece = self.board[moves[i].to as usize];
+            let promoting = Piece::from_num(moves[i].data);
+
+            if capturing_piece != Piece::Empty {
+                score += 10 * Engine::get_piece_value(capturing_piece) - Engine::get_piece_value(moving_piece);
+            }
+
+            // deprioritize moving into attacked squares
+            if attacked_squares.contains(&(moves[i].to as usize)) {
+                score -= Engine::get_piece_value(moving_piece);
+            }
+
+            // score promotion moves
+            if moving_piece == Piece::Pawn_W || moving_piece == Piece::Pawn_B {
+                score += Engine::get_piece_value(promoting);
+            }
+
+            moves[i].score = score;
+
+            let mut index = i;
+            for j in 0..len {
+                if moves[index].score > moves[j].score && index != j {
+                    moves.swap(index, j);
+                    index = j + 1;
+                }
+            }
+        }
+
+        //moves.sort_by_key(|a| a.score);
+    }
+
+    pub fn find_best_move(&mut self, can_cancel: bool, depth: i32, offset: i32, alpha: i32, beta: i32) -> i32 {
+        let mut alpha = alpha;
+        let mut beta = beta;
+
+        if depth <= 0 {
+           return self.quiescence_search(alpha, beta);
+           //return self.evaluate();
+        }
+
+
+        if offset > 0 {
+            // detect any repetition and assume a draw is coming (return a 0 draw score)
+            if self.repetition_history.contains(&self.board_hash) {
+                return 0;
+            }
+        }
+
+        alpha = max(alpha, i32::MIN + offset + 1);
+        beta = min(beta, i32::MAX - offset - 1);
+        if alpha >= beta {
+            return alpha;
+        }
+
+        match self.saved_evaluations.get(&self.board_hash) {
+            Some(saved_eval) => {
+                let mut should_return = false;
+                if saved_eval.depth >= depth {
+                    if saved_eval.saved_type == SavedEvalType::Exact { // exact eval was saved so just return it
+                        should_return = true;
+                    } else if saved_eval.saved_type == SavedEvalType::Alpha && saved_eval.eval <= alpha { // if we are storing the lower bound, only search if it is greater than the current lower bound
+                        should_return = true;
+                    } else if saved_eval.saved_type == SavedEvalType::Beta && saved_eval.eval >= beta { // if we are storing the upper bound, only search if it is less than the current upper bound
+                        should_return = true;
+                    }
+                }
+                if should_return {
+                    if offset == 0 {
+                        self.best_move_this_iteration = saved_eval.best_move;
+                        self.best_move_this_iteration.score = saved_eval.eval;
+                    }
+                    return saved_eval.eval;
+                }
+            },
+            None => {}
+        }
+
+        self.pinned_pieces.clear();
+        let mut attacked_squares: Vec<usize> = vec![];
+        self.get_attacked_squares(
+            self.white_turn, 
+            -1, 
+            true,
+            &mut attacked_squares
+        );
+        let mut valid_moves = self.get_all_valid_moves(
+            false,
+            &mut attacked_squares
+        );
+
+        if valid_moves.len() == 0 { // either checkmate or stalemate
+            let in_check = self.is_in_check_attacked_squares(
+                self.white_turn,
+                &attacked_squares
+            );
+            if in_check {
+                return i32::MIN + offset; // checkmate, worst possible move
+            } else {
+                return 0; // stalemate, draw
+            }
+        }
+        self.predict_and_order_moves(
+            &mut valid_moves,
+            &attacked_squares
+        );
+
+        let starting_hash = self.board_hash;
+        let starting_en_passant = self.en_passant_square;
+        let starting_castle_status = self.castle_status;
+        let mut best_move_for_this_position: EvalMove = Default::default();
+        let mut saving_type = SavedEvalType::Alpha;
+        for mov in valid_moves.iter() {
+            // make the move (todo: move to function)
+            self.update_castle_status(
+                mov.from as usize,
+                mov.to as usize
+            );
+            self.force_make_move(
+                mov.from as usize, 
+                &MoveInfo {
+                    index: mov.to as usize,
+                    data: Piece::from_num(mov.data)
+                },
+                false
+            );
+            let mut stored_deltas = vec![];
+            swap(&mut stored_deltas, &mut self.board_deltas);
+
+            self.white_turn = !self.white_turn;
+            self.board_hash = self.update_hash(
+                stored_deltas.as_slice(),
+                starting_hash,
+                starting_en_passant,
+                starting_castle_status
+            );
+
+            let evaluation = -1 * self.find_best_move(
+                can_cancel, 
+                depth - 1,
+                offset + 1,
+                -beta,
+                -alpha
+            );
+
+            // unmake the move
+            self.unmake_move(&stored_deltas);
+            self.board_hash = starting_hash;
+            self.en_passant_square = starting_en_passant;
+            self.castle_status = starting_castle_status;
+
+            // calc alpha & beta
+            if evaluation >= beta {
+                self.saved_evaluations.insert(
+                    self.board_hash,
+                    EvaluationData {
+                        total_moves: 0,
+                        depth,
+                        best_move: best_move_for_this_position,
+                        saved_type: SavedEvalType::Beta,
+                        eval: beta
+                    }
+                );
+                return beta;
+            }
+            if evaluation > alpha { // best move found
+                alpha = evaluation;
+                best_move_for_this_position = *mov;
+                saving_type = SavedEvalType::Exact;
+
+                if offset == 0 {
+                    self.best_move_this_iteration = best_move_for_this_position;
+                    self.best_move_this_iteration.score = evaluation;
+                }
+            }
+        }
+
+        self.saved_evaluations.insert(
+            self.board_hash,
+            EvaluationData {
+                total_moves: 0,
+                depth,
+                best_move: best_move_for_this_position,
+                saved_type: saving_type,
+                eval: alpha
+            }
+        );
+        
+        alpha
+    }
+
+    // search until the position is 'quiet' (no captures remaining)
+    pub fn quiescence_search(&mut self, alpha: i32, beta: i32) -> i32 {
+        let evaluation = self.evaluate(); // evaluate first to prevent forcing a bad capture when there may have been better non capture moves
+        let mut alpha = alpha;
+
+        if evaluation >= beta {
+            return beta;
+        }
+        if evaluation > alpha {
+            alpha = evaluation;
+        }
+
+        self.pinned_pieces.clear();
+        let mut attacked_squares: Vec<usize> = vec![];
+        self.get_attacked_squares(
+            self.white_turn, 
+            -1, 
+            true,
+            &mut attacked_squares
+        );
+        let mut valid_moves = self.get_all_valid_moves(
+            true,
+            &mut attacked_squares
+        );
+
+        self.predict_and_order_moves(
+            &mut valid_moves,
+            &attacked_squares
+        );
+
+        let starting_en_passant = self.en_passant_square;
+        for mov in valid_moves.iter() {
+            // make the move (todo: move to function)
+            // dont update hash or castle status because they aren't relevant here
+            self.force_make_move(
+                mov.from as usize, 
+                &MoveInfo {
+                    index: mov.to as usize,
+                    data: Piece::from_num(mov.data)
+                },
+                false
+            );
+            let mut stored_deltas = vec![];
+            swap(&mut stored_deltas, &mut self.board_deltas);
+
+            self.white_turn = !self.white_turn;
+
+            let evaluation = -1 * self.quiescence_search(
+                -beta,
+                -alpha
+            );
+
+            // unmake the move
+            self.unmake_move(&stored_deltas);
+            self.en_passant_square = starting_en_passant;
+
+            if evaluation >= beta {
+                return beta;
+            }
+            if evaluation > alpha {
+                alpha = evaluation;
+            }
+        }
+
+        alpha
+    }
+
+    pub fn eval_bot_move(&mut self, depth: i32) {
+        if self.check_for_draw() {
+            return;
+        }
+
+        self.search_start_time = now("");
+
+        self.find_best_move(
+            false,
+            depth,
+            0,
+            i32::MIN,
+            i32::MAX
+        );
+        if self.best_move.to == self.best_move_this_iteration.to && self.best_move.from == self.best_move_this_iteration.from { // repeating the same move from the last evaluatioin
+            log("Attempting to make the same move, aborting");
+            return;
+        } else {
+            self.best_move = self.best_move_this_iteration;
+        }
+
+        self.castled_this_turn = self.update_castle_status(
+            self.best_move.from as usize,
+            self.best_move.to as usize
+        );
+        self.piece_captured_this_turn = self.board[self.best_move.to as usize] != Piece::Empty;
+        self.force_make_move(
+            self.best_move.from as usize,
+            &MoveInfo {
+                index: self.best_move.to as usize,
+                data: Piece::from_num(self.best_move.data)
+            },
+            true
+        );
+
+        let time_elapsed = now("") - self.search_start_time;
+        self.time_taken_last_turn = time_elapsed; // ms
     }
 
     pub fn attempt_move(&mut self, from_index: usize, to_index: usize) -> bool {
@@ -1354,5 +1839,13 @@ impl Engine {
 
     pub fn castled_this_turn(&self) -> bool {
         self.castled_this_turn
+    }
+
+    pub fn best_move(&self) -> EvalMove {
+        self.best_move
+    }
+
+    pub fn time_taken_last_turn(&self) -> u32 {
+        self.time_taken_last_turn
     }
 }

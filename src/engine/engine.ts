@@ -359,6 +359,7 @@ export class Engine {
         }
     }
 
+    // todo: attack only should apply on slide pieces as well
     getValidSquares = (index: number, piece: number, attackOnly: boolean, updatePins: boolean,inArray: number[]) => {
         const x = index % this.boardSize;
         const y = (index / this.boardSize) << 0;
@@ -1043,26 +1044,7 @@ export class Engine {
 
             // score promotion moves
             if (movingPiece == Piece.Pawn_W || movingPiece == Piece.Pawn_B) {
-                switch (promoting) {
-                    case Piece.Knight_W:
-                    case Piece.Knight_B:
-                        score += this.getPieceValue(Piece.Knight_W);
-                        break;
-                    case Piece.Bishop_W:
-                    case Piece.Bishop_B:
-                        score += this.getPieceValue(Piece.Bishop_W);
-                        break;
-                    case Piece.Queen_W:
-                    case Piece.Queen_B:
-                        score += this.getPieceValue(Piece.Queen_W);
-                        break;
-                    case Piece.Rook_W:
-                    case Piece.Rook_B:
-                        score += this.getPieceValue(Piece.Rook_W);
-                        break;
-                    default:
-                        break;
-                }
+                score += this.getPieceValue(promoting);
             }
 
             moves[i].score = score;
@@ -1106,8 +1088,10 @@ export class Engine {
         if (canCancel && Date.now() - this.searchStartTime >= this.searchMaxTime) // abort search
             return 0;
 
-        if (depth <= 0)
+        if (depth <= 0) {
+            //return this.evaluate();
             return this.quiescenceSearch(alpha, beta);
+        }
 
         if (offset > 0) {
             // detect any repetition and assume a draw is coming (return a 0 draw score)
@@ -1565,7 +1549,7 @@ ctx.addEventListener("message", (e) => {
         }
         case EngineCommands.BotBestMove:
         {
-            if (!(engine.moveCount <= 5 && engine.bookMove()))
+            //if (!(engine.moveCount <= 5 && engine.bookMove()))
                 engine.evalBotMove(6);
             ctx.postMessage({
                 command: e.data.command,

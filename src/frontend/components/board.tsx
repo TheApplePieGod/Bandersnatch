@@ -72,7 +72,7 @@ export class Board extends React.Component<Props, State> {
             waitingForMove: false,
             botMoveAutoplay: false,
             playAgainstBot: false,
-            botIterative: true,
+            botIterative: false,
             currentEval: 0,
             localHistory: [],
             historyIndex: 0,
