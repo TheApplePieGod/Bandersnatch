@@ -1,16 +1,31 @@
-mod utils;
+mod defs;
 
 use wasm_bindgen::prelude::*;
-use std::{cmp::{max, min}, mem::swap, usize, vec};
+use std::{cmp::{max, min}, intrinsics::transmute, mem::swap, usize, vec};
 
-use bitflags::bitflags;
 use rand::Rng;
 
-// When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
-// allocator.
-#[cfg(feature = "wee_alloc")]
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+use crate::defs::{
+    set_panic_hook,
+    Value,
+    Piece,
+    CastleStatus,
+    BoardDelta,
+    EvalMove,
+    EvaluationData,
+    DebugMoveOutput,
+    MoveInfo,
+    SavedEvalType,
+    PAWN_SQUARE_TABLE,
+    ROOK_SQUARE_TABLE,
+    KNIGHT_SQUARE_TABLE,
+    BISHOP_SQUARE_TABLE,
+    QUEEN_SQUARE_TABLE,
+    KING_MIDDLE_GAME_SQUARE_TABLE
+};
+
+// #[global_allocator]
+// static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen]
 extern {
@@ -22,6 +37,9 @@ extern {
     // workaround to perf.now() in webworkers
     #[wasm_bindgen(js_namespace = ["self", "performance"])]
     fn now(s: &str) -> u32;
+
+    #[wasm_bindgen(js_namespace = self)]
+    fn post_eval_message(s: &str, eval: i32);
 }
 
 #[wasm_bindgen]
@@ -30,174 +48,6 @@ pub fn greet() {
 }
 
 // -----------------------------------------------------------------------------------------
-#[wasm_bindgen]
-#[allow(non_camel_case_types)]
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Piece {
-    Empty = 0,
-    King_B = 1,
-    Queen_B = 2,
-    Rook_B = 3,
-    Bishop_B = 4,
-    Knight_B = 5,
-    Pawn_B = 6,
-    King_W = 7,
-    Queen_W = 8,
-    Rook_W = 9,
-    Bishop_W = 10,
-    Knight_W = 11,
-    Pawn_W = 12
-}
-
-impl Piece {
-    pub fn from_num(num: i32) -> Piece {
-        match num {
-            1 => Piece::King_B,
-            2 => Piece::Queen_B,
-            3 => Piece::Rook_B,
-            4 => Piece::Bishop_B,
-            5 => Piece::Knight_B,
-            6 => Piece::Pawn_B,
-            7 => Piece::King_W,
-            8 => Piece::Queen_W,
-            9 => Piece::Rook_W,
-            10 => Piece::Bishop_W,
-            11 => Piece::Knight_W,
-            12 => Piece::Pawn_W,
-            _ => Piece::Empty
-        }
-    }
-}
-
-pub struct Value;
-impl Value {
-    pub const PAWN: i32 = 100;
-    pub const KNIGHT: i32 = 300;
-    pub const BISHOP: i32 = 300;
-    pub const ROOK: i32 = 500;
-    pub const QUEEN: i32 = 900;
-}
-
-bitflags! {
-    #[wasm_bindgen]
-    struct CastleStatus: u8 {
-        const UNSET = 0;
-        const WHITE_KING = 1;
-        const WHITE_QUEEN = 2;
-        const BLACK_KING = 4;
-        const BLACK_QUEEN = 8;
-    }
-}
-
-// setting fields to -1 ignores them
-#[wasm_bindgen]
-#[derive(Copy, Clone)]
-pub struct BoardDelta {
-    index: i32, // current location of the piece
-    piece: Piece,
-    target: i32 // where the piece is moving to (if appliciable)
-}
-
-#[wasm_bindgen]
-pub struct MoveInfo {
-    index: usize, // to_index
-    data: Piece // promotion
-}
-
-// keep everything as i32 for easy reading in js
-#[wasm_bindgen]
-#[derive(Default, Clone, Copy)]
-pub struct EvalMove {
-    from: i32,
-    to: i32,
-    data: i32,
-    score: i32
-}
-
-#[wasm_bindgen]
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SavedEvalType {
-    Exact = 0,
-    Alpha = 1,
-    Beta = 2
-}
-
-#[wasm_bindgen]
-pub struct EvaluationData {
-    total_moves: i32,
-    eval: i32,
-    best_move: EvalMove,
-    depth: i32,
-    saved_type: SavedEvalType,
-}
-
-const PAWN_SQUARE_TABLE: [i32; 64] = [
-    0,  0,  0,  0,  0,  0,  0,  0,
-    50, 50, 50, 50, 50, 50, 50, 50,
-    10, 10, 20, 30, 30, 20, 10, 10,
-    5,  5, 10, 25, 25, 10,  5,  5,
-    0,  0,  0, 20, 20,  0,  0,  0,
-    5, -5,-10,  0,  0,-10, -5,  5,
-    5, 10, 10,-20,-20, 10, 10,  5,
-    0,  0,  0,  0,  0,  0,  0,  0
-];
-
-const KNIGHT_SQUARE_TABLE: [i32; 64] = [
-    -50,-40,-30,-30,-30,-30,-40,-50,
-    -40,-20,  0,  0,  0,  0,-20,-40,
-    -30,  0, 10, 15, 15, 10,  0,-30,
-    -30,  5, 15, 20, 20, 15,  5,-30,
-    -30,  0, 15, 20, 20, 15,  0,-30,
-    -30,  5, 10, 15, 15, 10,  5,-30,
-    -40,-20,  0,  5,  5,  0,-20,-40,
-    -50,-40,-30,-30,-30,-30,-40,-50,
-];
-
-const BISHOP_SQUARE_TABLE: [i32; 64] = [
-    -20,-10,-10,-10,-10,-10,-10,-20,
-    -10,  0,  0,  0,  0,  0,  0,-10,
-    -10,  0,  5, 10, 10,  5,  0,-10,
-    -10,  5,  5, 10, 10,  5,  5,-10,
-    -10,  0, 10, 10, 10, 10,  0,-10,
-    -10, 10, 10, 10, 10, 10, 10,-10,
-    -10,  5,  0,  0,  0,  0,  5,-10,
-    -20,-10,-10,-10,-10,-10,-10,-20,
-];
-
-const ROOK_SQUARE_TABLE: [i32; 64] = [
-    0,  0,  0,  0,  0,  0,  0,  0,
-    5, 10, 10, 10, 10, 10, 10,  5,
-    -5,  0,  0,  0,  0,  0,  0, -5,
-    -5,  0,  0,  0,  0,  0,  0, -5,
-    -5,  0,  0,  0,  0,  0,  0, -5,
-    -5,  0,  0,  0,  0,  0,  0, -5,
-    -5,  0,  0,  0,  0,  0,  0, -5,
-    0,  0,  0,  5,  5,  0,  0,  0
-];
-
-const QUEEN_SQUARE_TABLE: [i32; 64] = [
-    -20,-10,-10, -5, -5,-10,-10,-20,
-    -10,  0,  0,  0,  0,  0,  0,-10,
-    -10,  0,  5,  5,  5,  5,  0,-10,
-    -5,  0,  5,  5,  5,  5,  0, -5,
-    0,  0,  5,  5,  5,  5,  0, -5,
-    -10,  5,  5,  5,  5,  5,  0,-10,
-    -10,  0,  5,  0,  0,  0,  0,-10,
-    -20,-10,-10, -5, -5,-10,-10,-20
-];
-
-const KING_MIDDLE_GAME_SQUARE_TABLE: [i32; 64] = [
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -20,-30,-30,-40,-40,-30,-30,-20,
-    -10,-20,-20,-20,-20,-20,-20,-10,
-    20, 20,  0,  0,  0,  0, 20, 20,
-    20, 30, 10,  0,  0, 10, 30, 20
-];
 
 #[wasm_bindgen]
 pub struct Engine {
@@ -228,11 +78,16 @@ pub struct Engine {
     search_max_time: u32,
     time_taken_last_turn: u32,
     depth_searched_last_turn: i32,
+    moves_found_this_turn: Vec<DebugMoveOutput>,
+    moves_found_this_iteration: Vec<DebugMoveOutput>,
 }
 
 #[wasm_bindgen]
 impl Engine {
     pub fn new() -> Engine {
+        // initialize debug hook
+        set_panic_hook();
+
         // init hash table
         let mut zobrist_hashes: Vec<Vec<u64>> = vec![];
         let hash_max: u64 = 2;
@@ -261,7 +116,7 @@ impl Engine {
         for _i in 0..64 {
             en_passant_squares.push(rand::thread_rng().gen_range(0..hash_max));
         }
-        zobrist_hashes.push(en_passant_squares);
+        zobrist_hashes.push(en_passant_squares);     
 
         Engine {
             fen_to_piece_map: [
@@ -320,6 +175,8 @@ impl Engine {
             search_max_time: 3000,
             time_taken_last_turn: 0,
             depth_searched_last_turn: 0,
+            moves_found_this_turn: vec![],
+            moves_found_this_iteration: vec![],
         }
     }
 
@@ -346,6 +203,26 @@ impl Engine {
                 },
                 None => {}
             }
+    }
+
+    pub fn find_piece_in_file(&self, piece: usize, file: &str) -> i32 {
+        for location in self.piece_locations[piece].iter() {
+            let found_file = Engine::index_to_notation(*location).chars().nth(0).unwrap().to_string();
+            if found_file == file {
+                return *location as i32;
+            }
+        }
+
+        -1
+    }
+
+    pub fn index_to_notation(index: usize) -> String {
+        let y = (index as f32 * 0.125) as u32;
+        let x = index as u32 % 8;
+        match std::char::from_u32(x + 97) {
+            Some(c) => c.to_string() + &(8 - y).to_string(),
+            None => String::from("")
+        }
     }
 
     pub fn notation_to_index(rank: char, file: char) -> usize {
@@ -467,6 +344,17 @@ impl Engine {
         self.repetition_history.clear();
         self.repetition_history.push(self.board_hash);
         self.all_valid_moves = self.get_all_valid_moves(false, &mut vec![]);
+    }
+
+    pub fn use_historical_board(&mut self) {
+        self.board_deltas.clear();
+        self.saved_evaluations.clear();
+        self.board_hash = self.hash_board();
+        self.best_move = Default::default();
+        self.all_valid_moves = self.get_all_valid_moves(
+            false, 
+            &mut vec![]
+        );
     }
 
     pub fn finish_turn(&mut self) {
@@ -951,105 +839,12 @@ impl Engine {
         }
     }
 
+    #[allow(unused_assignments)]
     fn get_valid_squares(&mut self, index: usize, piece: Piece, attack_only: bool, update_pins: bool, in_array: &mut Vec<usize>) {
         let x = index as i32 % 8;
         let y = (index as f32 * 0.125) as i32; // 0.125 = 1/8
         let xy_max: i32 = 7;
         let is_white = piece as u8 >= 7;
-
-        // let trace_lines = |engine: &mut Engine, valid_squares: &mut Vec<usize>| {
-        //     engine.trace_valid_squares( // right
-        //         index,
-        //         1,
-        //         0,
-        //         is_white,
-        //         false,
-        //         update_pins,
-        //         x,
-        //         y,
-        //         valid_squares
-        //     );
-        //     engine.trace_valid_squares( // left
-        //         index,
-        //         -1,
-        //         0,
-        //         is_white,
-        //         false,
-        //         update_pins,
-        //         x,
-        //         y,
-        //         valid_squares
-        //     );
-        //     engine.trace_valid_squares( // down
-        //         index,
-        //         0,
-        //         1,
-        //         is_white,
-        //         false,
-        //         update_pins,
-        //         x,
-        //         y,
-        //         valid_squares
-        //     );
-        //     engine.trace_valid_squares( // up
-        //         index,
-        //         0,
-        //         -1,
-        //         is_white,
-        //         false,
-        //         update_pins,
-        //         x,
-        //         y,
-        //         valid_squares
-        //     );
-        // };
-
-        // let trace_diagonals = |engine: &mut Engine, valid_squares: &mut Vec<usize>| {
-        //     engine.trace_valid_squares( // up right
-        //         index,
-        //         1,
-        //         -1,
-        //         is_white,
-        //         false,
-        //         update_pins,
-        //         x,
-        //         y,
-        //         valid_squares
-        //     );
-        //     engine.trace_valid_squares( // up left
-        //         index,
-        //         -1,
-        //         -1,
-        //         is_white,
-        //         false,
-        //         update_pins,
-        //         x,
-        //         y,
-        //         valid_squares
-        //     );
-        //     engine.trace_valid_squares( // down right
-        //         index,
-        //         1,
-        //         1,
-        //         is_white,
-        //         false,
-        //         update_pins,
-        //         x,
-        //         y,
-        //         valid_squares
-        //     );
-        //     engine.trace_valid_squares( // down left
-        //         index,
-        //         -1,
-        //         1,
-        //         is_white,
-        //         false,
-        //         update_pins,
-        //         x,
-        //         y,
-        //         valid_squares
-        //     );
-        // };
 
         match piece {
             Piece::Rook_W | Piece::Rook_B => {
@@ -1671,7 +1466,7 @@ impl Engine {
             moves[i].score = score;
 
             let mut index = i;
-            let mut current_elem = moves[index];
+            let current_elem = moves[index];
             while index > 0 && current_elem.score > moves[index - 1].score {
                 moves[index] = moves[index - 1];
                 index -= 1;
@@ -1826,6 +1621,11 @@ impl Engine {
                 if offset == 0 {
                     self.best_move_this_iteration = best_move_for_this_position;
                     self.best_move_this_iteration.score = evaluation;
+                    self.moves_found_this_iteration.push(DebugMoveOutput {
+                        mov: self.best_move_this_iteration,
+                        piece: self.board[self.best_move_this_iteration.from as usize] as i32,
+                        capture: if self.board[self.best_move_this_iteration.to as usize] != Piece::Empty { 1 } else { 0 }
+                    });
                 }
             }
         }
@@ -1864,7 +1664,11 @@ impl Engine {
 
             last_completed_depth = i;
             self.best_move = self.best_move_this_iteration;
-            //ctx.postMessage({ command: EvalCommands.ReceiveCurrentEval, eval: this.whiteTurn ? this.evalBestMove.score : -1 * this.evalBestMove.score });
+            swap(&mut self.moves_found_this_iteration, &mut self.moves_found_this_turn);
+            self.moves_found_this_iteration.clear();
+
+            // update eval on frontend if this is being run in the eval worker
+            post_eval_message("", if self.white_turn { self.best_move.score } else { -self.best_move.score });
 
             if self.best_move.score >= 99999999 { // mate
                 break;
@@ -1941,12 +1745,14 @@ impl Engine {
         alpha
     }
 
-    pub fn eval_bot_move(&mut self, depth: i32) {
+    pub fn eval_bot_move(&mut self, depth: i32) -> bool {
         if self.check_for_draw() {
-            return;
+            return false;
         }
 
         let start_time = now("");
+        self.moves_found_this_iteration.clear();
+        self.moves_found_this_turn.clear();
 
         self.find_best_move(
             false,
@@ -1957,11 +1763,12 @@ impl Engine {
         );
         if self.best_move.to == self.best_move_this_iteration.to && self.best_move.from == self.best_move_this_iteration.from { // repeating the same move from the last evaluatioin
             log("Attempting to make the same move, aborting");
-            return;
+            return false;
         } else {
             self.best_move = self.best_move_this_iteration;
         }
 
+        swap(&mut self.moves_found_this_turn, &mut self.moves_found_this_iteration);
         self.depth_searched_last_turn = depth;
         self.castled_this_turn = self.update_castle_status(
             self.best_move.from as usize,
@@ -1979,20 +1786,24 @@ impl Engine {
 
         let time_elapsed = now("") - start_time;
         self.time_taken_last_turn = time_elapsed; // ms
+
+        true
     }
 
-    pub fn eval_bot_move_iterative(&mut self) {
+    pub fn eval_bot_move_iterative(&mut self) -> bool {
         if self.check_for_draw() {
-            return;
+            return false;
         }
 
         let start_time = now("");
         let last_move = self.best_move;
+        self.moves_found_this_iteration.clear();
+        self.moves_found_this_turn.clear();
 
         self.find_best_move_iterative();
         if self.best_move.to == last_move.to && self.best_move.from == last_move.from { // repeating the same move from the last evaluatioin
             log("Attempting to make the same move, aborting");
-            return;
+            return false;
         }
 
         self.castled_this_turn = self.update_castle_status(
@@ -2011,6 +1822,8 @@ impl Engine {
 
         let time_elapsed = now("") - start_time;
         self.time_taken_last_turn = time_elapsed; // ms
+
+        true
     }
 
     pub fn attempt_move(&mut self, from_index: usize, to_index: usize) -> bool {
@@ -2053,6 +1866,12 @@ impl Engine {
         self.board.as_ptr()
     }
 
+    pub fn set_board(&mut self, board: Vec<i32>) {
+        for (i, elem) in board.iter().enumerate() {
+            self.board[i] = Piece::from_num(*elem);
+        }
+    }
+
     pub fn valid_moves_ptr(&self) -> *const EvalMove {
         self.all_valid_moves.as_ptr()
     }
@@ -2065,12 +1884,70 @@ impl Engine {
         self.white_turn
     }
 
+    pub fn set_white_turn(&mut self, white_turn: bool) {
+        self.white_turn = white_turn;
+    }
+
+    pub fn castle_status(&self) -> u8 {
+        unsafe { transmute(self.castle_status) }
+    }
+
+    pub fn set_castle_status(&mut self, castle_status: u8) {
+        self.castle_status = unsafe { transmute(castle_status) };
+    }
+
+    pub fn en_passant_square(&self) -> i32 {
+        self.en_passant_square
+    }
+
+    pub fn set_en_passant_square(&mut self, en_passant_square: i32) {
+        self.en_passant_square = en_passant_square;
+    }
+
+    pub fn move_count(&self) -> i32 {
+        self.move_count
+    }
+
+    pub fn set_move_count(&mut self, move_count: i32) {
+        self.move_count = move_count;
+    }
+
+    pub fn move_rep_count(&self) -> i32 {
+        self.move_rep_count
+    }
+
+    pub fn set_move_rep_count(&mut self, move_rep_count: i32) {
+        self.move_rep_count = move_rep_count;
+    }
+
+    pub fn repetition_history_ptr(&self) -> *const u64 {
+        self.repetition_history.as_ptr()
+    }
+
+    pub fn repetition_history_len(&self) -> usize {
+        self.repetition_history.len()
+    }
+
+    pub fn set_repetition_history(&mut self, repetition_history: Vec<u64>) {
+        self.repetition_history.clear();
+        for elem in repetition_history.iter() {
+            self.repetition_history.push(*elem);
+        }
+    }
+
     pub fn piece_locations(&self, piece: i32) -> Vec<i32> {
         let mut list: Vec<i32> = vec![];
         for elem in self.piece_locations[piece as usize].iter() {
             list.push(*elem as i32)
         }
         list
+    }
+
+    pub fn set_piece_locations(&mut self, piece: i32, locations: Vec<i32>) {
+        self.piece_locations[piece as usize].clear();
+        for elem in locations.iter() {
+            self.piece_locations[piece as usize].push(*elem as usize);
+        }
     }
 
     pub fn in_check(&self) -> bool {
@@ -2095,5 +1972,21 @@ impl Engine {
 
     pub fn depth_searched_last_turn(&self) -> i32 {
         self.depth_searched_last_turn
+    }
+
+    pub fn set_depth_searched_last_turn(&mut self, depth: i32) {
+        self.depth_searched_last_turn = depth;
+    }
+
+    pub fn update_max_search_time(&mut self, time: u32) {
+        self.search_max_time = time;
+    }
+
+    pub fn moves_found_this_turn_ptr(&self) -> *const DebugMoveOutput {
+        self.moves_found_this_turn.as_ptr()
+    }
+
+    pub fn moves_found_this_turn_len(&self) -> usize {
+        self.moves_found_this_turn.len()
     }
 }

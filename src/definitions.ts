@@ -33,6 +33,7 @@ export interface HistoricalBoard {
     board: number[];
     whiteTurn: boolean;
     castleStatus: number;
+    enPassantSquare: number;
     pieceLocations: number[][];
     moveCount: number;
     moveRepCount: number;
@@ -144,6 +145,21 @@ export const indexToNotation = (index: number) => {
     const y = Math.floor(index / 8);
     const x = index % 8;
     return `${String.fromCharCode(x + 97)}${8 - y}`;
+}
+
+export const fenToPieceDict: Record<string, number> = {
+    'K': Piece.King_W,
+    'Q': Piece.Queen_W,
+    'R': Piece.Rook_W,
+    'B': Piece.Bishop_W,
+    'N': Piece.Knight_W,
+    'P': Piece.Pawn_W,
+    'k': Piece.King_B,
+    'q': Piece.Queen_B,
+    'r': Piece.Rook_B,
+    'b': Piece.Bishop_B,
+    'n': Piece.Knight_B,
+    'p': Piece.Pawn_B
 }
 
 // adapted from https://github.com/SebLague/Chess-AI/blob/main/Assets/Scripts/Core/PieceSquareTable.cs

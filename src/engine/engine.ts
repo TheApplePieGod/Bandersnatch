@@ -1,5 +1,5 @@
 import bigInt from "big-integer";
-import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, EvalMove, EngineCommands, kingMiddleGameSquareTable, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation, getPieceNameShort } from "../definitions";
+import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, EvalMove, EngineCommands, kingMiddleGameSquareTable, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation, getPieceNameShort, fenToPieceDict } from "../definitions";
 import { openings } from "./openings";
 
 // We alias self to ctx and give it our newly created type
@@ -89,20 +89,6 @@ export class Engine {
     enPassantSquare = -1;
     allValidMoves: EvalMove[] = [];
 
-    fenToPieceDict: Record<string, number> = {
-        'K': Piece.King_W,
-        'Q': Piece.Queen_W,
-        'R': Piece.Rook_W,
-        'B': Piece.Bishop_W,
-        'N': Piece.Knight_W,
-        'P': Piece.Pawn_W,
-        'k': Piece.King_B,
-        'q': Piece.Queen_B,
-        'r': Piece.Rook_B,
-        'b': Piece.Bishop_B,
-        'n': Piece.Knight_B,
-        'p': Piece.Pawn_B
-    }
     startingMaterialWithoutPawns = (Value.Bishop * 2) + (Value.Knight * 2) + (Value.Rook * 2) + Value.Queen;
     startingMaterial = (Value.Pawn * 8) + this.startingMaterialWithoutPawns;
     endgameMaterialThreshold = (Value.Rook * 2) + (Value.Bishop) + (Value.Knight);
@@ -129,11 +115,14 @@ export class Engine {
         //startingFEN = "8/2N4p/1PK3p1/8/4k3/4P3/1r5P/8 b - - 0 1"; // passed pawn detection test
         //startingFEN = "r1b1kb1r/pp2q1pp/2p4n/3p1P2/3Q4/2NBB3/PPP2PPP/R3K2R w KQkq - 2 10";
 
+        // the bigint casts should and do work so just ignore the ts type error
+
         // initialize the hash table (0-63)
         const maxVal: bigInt.BigNumber = bigInt(2).pow(64).minus(1);
         for (let i = 0; i < 64; i++) {
             this.zobristHashTable.push([]);
             for (let j = 0; j < 12; j++) {
+                //@ts-ignore
                 this.zobristHashTable[i].push(BigInt(bigInt.randBetween(0, maxVal)));
             }
         }
@@ -141,16 +130,19 @@ export class Engine {
         // castle values (64)
         let castleValues: bigint[] = [];
         for (let i = 0; i < 4; i++) {
+            //@ts-ignore
             castleValues.push(BigInt(bigInt.randBetween(0, maxVal)));
         }
         this.zobristHashTable.push(castleValues);
         
         // turn (65)
+        //@ts-ignore
         this.zobristHashTable.push([BigInt(bigInt.randBetween(0, maxVal))]);
 
         // en passant (66)
         let enPassantSquares: bigint[] = [];
         for (let i = 0; i < 64; i++) {
+            //@ts-ignore
             enPassantSquares.push(BigInt(bigInt.randBetween(0, maxVal)));
         }
         this.zobristHashTable.push(enPassantSquares);
@@ -172,6 +164,7 @@ export class Engine {
             board:  [...this.board],
             whiteTurn: this.whiteTurn,
             castleStatus: this.castleStatus,
+            enPassantSquare: this.enPassantSquare,
             pieceLocations: newPieceLocations,
             moveCount: this.moveCount,
             moveRepCount: this.moveRepCount,
@@ -183,6 +176,7 @@ export class Engine {
         this.board = [...historicalBoard.board];
         this.whiteTurn = historicalBoard.whiteTurn;
         this.castleStatus = historicalBoard.castleStatus;
+        this.enPassantSquare = historicalBoard.enPassantSquare;
         this.pieceLocations = [...historicalBoard.pieceLocations];
         for (let i = 0; i < this.pieceLocations.length; i++) {
             this.pieceLocations[i] = [...this.pieceLocations[i]]
@@ -271,7 +265,7 @@ export class Engine {
             for (let t = 0; t < terms.length; t++) {
                 const numberVal = parseInt(terms[t]);
                 if (isNaN(numberVal)) {
-                    const piece = this.fenToPieceDict[terms[t]];
+                    const piece = fenToPieceDict[terms[t]];
                     board[boardIndex] = piece;
 
                     this.pieceLocations[piece].push(boardIndex);
@@ -610,7 +604,7 @@ export class Engine {
 
     generateMoveString = (fromIndex: number, toIndex: number) => {
         if (this.castledThisTurn) {
-            if (this.whiteTurn) {
+            if (this.whiteTurn) { // todo: O-O-O
 
             }
             return "O-O";
@@ -1320,7 +1314,7 @@ export class Engine {
                     from = this.findPieceInFile(Piece.Pawn_W, file); // always white since move zero
                 } else { // otherwise find the piece with that move as valid
                     const pieceName = move[0];
-                    const piece = this.fenToPieceDict[this.whiteTurn ? pieceName.toUpperCase() : pieceName.toLowerCase()];
+                    const piece = fenToPieceDict[this.whiteTurn ? pieceName.toUpperCase() : pieceName.toLowerCase()];
                     for (let i = 0; i < this.allValidMoves.length; i++) {
                         if (this.board[this.allValidMoves[i].from] == piece && this.allValidMoves[i].to == to) {
                             from = this.allValidMoves[i].from;
@@ -1362,7 +1356,7 @@ export class Engine {
                     from = this.findPieceInFile(this.whiteTurn ? Piece.Pawn_W : Piece.Pawn_B, file);
                 } else { // otherwise find the piece with that move as valid
                     const pieceName = move[0];
-                    let piece = this.fenToPieceDict[this.whiteTurn ? pieceName.toUpperCase() : pieceName.toLowerCase()];
+                    let piece = fenToPieceDict[this.whiteTurn ? pieceName.toUpperCase() : pieceName.toLowerCase()];
                     for (let i = 0; i < this.allValidMoves.length; i++) {
                         if (this.board[this.allValidMoves[i].from] == piece && this.allValidMoves[i].to == to) {
                             from = this.allValidMoves[i].from;
@@ -1394,8 +1388,6 @@ export class Engine {
             this.useHistoricalBoard(this.historicalBoards[this.historicalBoards.length - 1]);
             return false;
         }
-
-        return false
     }
 
     evalBotMove = (depth: number) => {
@@ -1558,7 +1550,7 @@ ctx.addEventListener("message", (e) => {
         }
         case EngineCommands.BotBestMove:
         {
-            //if (!(engine.moveCount <= 5 && engine.bookMove()))
+            if (!(engine.moveCount <= 5 && engine.bookMove()))
                 engine.evalBotMove(6);
             ctx.postMessage({
                 command: e.data.command,
@@ -1580,7 +1572,7 @@ ctx.addEventListener("message", (e) => {
         }
         case EngineCommands.BotBestMoveIterative:
         {
-            //if (!(engine.moveCount <= 5 && engine.bookMove()))
+            if (!(engine.moveCount <= 5 && engine.bookMove()))
                 engine.evalBotMoveIterative();
             //console.log(engine.calculateAllPossibleMoves(5));
             ctx.postMessage({

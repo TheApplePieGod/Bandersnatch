@@ -1,48 +1,25 @@
-import bigInt from "big-integer";
-import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, EvalMove, EngineCommands, kingMiddleGameSquareTable, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation, getPieceNameShort } from "../definitions";
+import { EvalCommands, EngineCommands, HistoricalBoard, EvalMove, DebugMoveOutput, Piece, notationToIndex, fenToPieceDict, getPieceNameShort, indexToNotation } from "../definitions";
 import { openings } from "./openings";
 
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
 
-let wasm: any = null;
-let memory: any = null;
-
-interface BoardDelta { // set values to -1 to ignore
-    index: number;
-    piece: number;
-    target: number;
-}
-
-interface MoveInfo {
-    index: number;
-    data: number;
-}
-
-interface EvaluationData {
-    totalMoves: number;
-    eval: number;
-    bestMove: EvalMove;
-    depth: number;
-    type: number;
-}
-
-enum SavedEvalTypes {
-    Exact = 0,
-    Alpha = 1,
-    Beta = 2
-}
-
-enum CastleStatus { // kingside / queenside
-    WhiteKing = 1,
-    WhiteQueen = 2,
-    BlackKing = 4,
-    BlackQueen = 8
+(self as any).post_eval_message = (s: string, evaluation: number) => {
+    ctx.postMessage({
+        command: EvalCommands.ReceiveCurrentEval,
+        eval: evaluation
+    });
 }
 
 export class WasmEngine {
+    wasm: any = null;
+    memory: any = null;
     initialized = false;
     wasm_engine: any = null;
+    historical_boards: HistoricalBoard[] = [];
+    historical_index = 0;
+    current_opening = "";
+    move_list: string[] = [];
 
     constructor() {
         
@@ -52,9 +29,14 @@ export class WasmEngine {
         if (!this.initialized) return undefined;
 
         const board_ptr = this.wasm_engine.board_ptr();
-        const board = new Uint8Array(memory.buffer, board_ptr, 64);
-
+        const board = new Uint8Array(this.memory.buffer, board_ptr, 64);
+        
         return board;
+    }
+
+    set_board = (board: number[]) => {
+        if (!this.initialized) return;
+        this.wasm_engine.set_board(board);
     }
 
     valid_moves = () => {
@@ -62,7 +44,7 @@ export class WasmEngine {
 
         const moves_ptr = this.wasm_engine.valid_moves_ptr();
         const moves_len = this.wasm_engine.valid_moves_len();
-        const valid_move_data = new Int32Array(memory.buffer, moves_ptr, moves_len * 4);
+        const valid_move_data = new Int32Array(this.memory.buffer, moves_ptr, moves_len * 4);
 
         let valid_moves: EvalMove[] = [];
         for (let i = 0; i < valid_move_data.length; i += 4) {
@@ -78,8 +60,34 @@ export class WasmEngine {
         return valid_moves;
     }
 
+    moves_found_this_turn = () => {
+        if (!this.initialized) return undefined;
+
+        const moves_ptr = this.wasm_engine.moves_found_this_turn_ptr();
+        const moves_len = this.wasm_engine.moves_found_this_turn_len();
+        const found_moves_data = new Int32Array(this.memory.buffer, moves_ptr, moves_len * 6);
+
+        let found_moves: DebugMoveOutput[] = [];
+        for (let i = 0; i < found_moves_data.length; i += 6) {
+            let move: DebugMoveOutput = {
+                move: {
+                    from: found_moves_data[i],
+                    to: found_moves_data[i + 1],
+                    data: found_moves_data[i + 2],
+                    score: found_moves_data[i + 3]
+                },
+                piece: found_moves_data[i + 4],
+                capture: found_moves_data[i + 5] == 1
+            }
+            
+            found_moves.push(move);
+        }
+
+        return found_moves;
+    }
+
     piece_locations = () => {
-        let piece_list: number[] = [];
+        let piece_list: number[][] = [];
 
         if (!this.initialized) return piece_list;
 
@@ -91,9 +99,76 @@ export class WasmEngine {
         return piece_list;
     }
 
+    set_piece_locations = (locations: number[][]) => {
+        if (!this.initialized) return;
+        for (let i = 0; i <= Piece.Pawn_W; i++) {
+            this.wasm_engine.set_piece_locations(i, locations[i]);
+        }
+    }
+
     white_turn = () => {
         if (!this.initialized) return false;
         return this.wasm_engine.white_turn();
+    }
+
+    set_white_turn = (white_turn: boolean) => {
+        if (!this.initialized) return;
+        this.wasm_engine.set_white_turn(white_turn);
+    }
+
+    castle_status = () => {
+        if (!this.initialized) return 0;
+        return this.wasm_engine.castle_status();
+    }
+    
+    set_castle_status = (castle_status: number) => {
+        if (!this.initialized) return;
+        this.wasm_engine.set_castle_status(castle_status);
+    }
+
+    en_passant_square = () => {
+        if (!this.initialized) return -1;
+        return this.wasm_engine.en_passant_square();
+    }
+
+    set_en_passant_square = (en_passant_square: number) => {
+        if (!this.initialized) return;
+        this.wasm_engine.set_en_passant_square(en_passant_square);
+    }
+
+    move_count = () => {
+        if (!this.initialized) return 0;
+        return this.wasm_engine.move_count();
+    }
+
+    set_move_count = (move_count: number) => {
+        if (!this.initialized) return;
+        this.wasm_engine.set_move_count(move_count);
+    }
+
+    move_rep_count = () => {
+        if (!this.initialized) return 0;
+        return this.wasm_engine.move_rep_count();
+    }
+
+    set_move_rep_count = (move_rep_count: number) => {
+        if (!this.initialized) return;
+        this.wasm_engine.set_move_rep_count(move_rep_count);
+    }
+
+    repetition_history = () => {
+        if (!this.initialized) return undefined;
+
+        const rep_ptr = this.wasm_engine.repetition_history_ptr();
+        const rep_len = this.wasm_engine.repetition_history_len();
+        const history = new BigUint64Array(this.memory.buffer, rep_ptr, rep_len);
+        
+        return history;
+    }
+
+    set_repetition_history = (repetition_history: bigint[]) => {
+        if (!this.initialized) return;
+        this.wasm_engine.set_repetition_history(repetition_history);
     }
 
     in_check = () => {
@@ -126,6 +201,83 @@ export class WasmEngine {
         return this.wasm_engine.depth_searched_last_turn();
     }
 
+    set_depth_searched_last_turn = (depth: number) => {
+        if (!this.initialized) return;
+        return this.wasm_engine.set_depth_searched_last_turn(depth);
+    }
+
+    update_max_search_time = (time: number) => {
+        if (!this.initialized) return;
+        this.wasm_engine.update_max_search_time(time << 0);
+    }
+
+    create_historical_board = () => {
+        let board = this.board();
+        let rep_history = this.repetition_history();
+        return {
+            board: board ? [...board] : undefined,
+            whiteTurn: this.white_turn(),
+            castleStatus: this.castle_status(),
+            enPassantSquare: this.en_passant_square(),
+            pieceLocations: this.piece_locations(),
+            moveCount: this.move_count(),
+            moveRepCount: this.move_rep_count(),
+            repetitionHistory: rep_history ? [...rep_history] : undefined
+        } as HistoricalBoard;
+    }
+
+    push_history = () => {
+        if (!this.initialized) return;
+        
+        this.historical_boards.push(this.create_historical_board());
+    }
+
+    use_historical_board = (board: HistoricalBoard) => {
+        if (!this.initialized) return;
+
+        this.set_board(board.board);
+        this.set_white_turn(board.whiteTurn);
+        this.set_castle_status(board.castleStatus);
+        this.set_en_passant_square(board.enPassantSquare);
+        this.set_piece_locations(board.pieceLocations);
+        this.set_move_count(board.moveCount);
+        this.set_move_rep_count(board.moveCount);
+        this.set_repetition_history(board.repetitionHistory);
+        this.wasm_engine.use_historical_board();
+    }
+
+    step_back = () => {
+        if (!this.initialized) return;
+
+        if (Math.abs(this.historical_index) < this.historical_boards.length - 1) {
+            this.historical_index--;
+
+            const board = this.historical_boards[this.historical_boards.length - 1 + this.historical_index];
+            this.use_historical_board(board);
+        }
+    }
+
+    step_forward = () => {
+        if (!this.initialized) return;
+
+        if (this.historical_index < 0) {
+            this.historical_index++;
+            const board = this.historical_boards[this.historical_boards.length - 1 + this.historical_index];
+            this.use_historical_board(board);
+        }
+    }
+
+    undo_move = () => {
+        if (!this.initialized) return;
+
+        if (this.historical_boards.length > 1 && this.historical_index == 0) {
+            this.historical_index = 0;
+            const board = this.historical_boards[this.historical_boards.length - 2];
+            this.use_historical_board(board);
+            this.historical_boards.pop();
+        }
+    }
+
     check_for_draw = () => {
         if (!this.initialized) return false;
         return this.wasm_engine.check_for_draw();
@@ -146,21 +298,154 @@ export class WasmEngine {
         return this.wasm_engine.eval_bot_move_iterative();
     }
 
+    find_best_move_iterative = () => {
+        if (!this.initialized) return;
+        return this.wasm_engine.find_best_move_iterative();
+    }
+
     attempt_move = (from_index: number, to_index: number) => {
         if (!this.initialized) return;
-
         return this.wasm_engine.attempt_move(from_index, to_index);
+    }
+
+    find_piece_in_file = (piece: number, file: string) => {
+        if (!this.initialized) return -1;
+        return this.wasm_engine.find_piece_in_file(piece, file);
+    }
+
+    // keep some of these functions in js because they aren't bottlenecked and would be a pain to convert over
+    generate_move_string = (fromIndex: number, toIndex: number) => {
+        if (this.castled_this_turn()) {
+            if (this.white_turn()) { // todo: O-O-O
+
+            }
+            return "O-O";
+        }
+
+        const board = this.board();
+        if (!board)
+            return "";
+
+        let pieceName = getPieceNameShort(board[toIndex]).toUpperCase(); // for opening comparison
+        if (pieceName == "" && this.piece_captured_this_turn()) { // pawn capture so get the name of the file it came from
+            pieceName = indexToNotation(fromIndex)[0];
+        }
+        const newLocation = indexToNotation(toIndex);
+
+        return `${pieceName}${this.piece_captured_this_turn() ? 'x' : ''}${newLocation}${this.in_check() ? '+' : ''}`;
+    }
+
+    book_move = () => { // a bit messy, cleanup ?
+        try {
+            const valid_moves = this.valid_moves();
+            const board = this.board();
+
+            if (!valid_moves || !board)
+                return false;
+
+            if (this.move_count() == 0) { // if its move one, play a random opening
+                const index = Math.floor(Math.random() * openings.length);
+                const opening = openings[index];
+                const move = opening.moves[0];
+                move.replace(/\W/g, '');
+                const file = move[move.length - 2];
+                const rank = parseInt(move[move.length - 1]);
+                let from = -1;
+                let to = notationToIndex(rank, file);
+
+                if (move.length == 2) { // pawn move
+                    from = this.find_piece_in_file(Piece.Pawn_W, file); // always white since move zero
+                } else { // otherwise find the piece with that move as valid
+                    const pieceName = move[0];
+                    const piece = fenToPieceDict[this.white_turn() ? pieceName.toUpperCase() : pieceName.toLowerCase()];
+
+                    for (let i = 0; i < valid_moves.length; i++) {
+                        if (board[valid_moves[i].from] == piece && valid_moves[i].to == to) {
+                            from = valid_moves[i].from;
+                            break;
+                        }
+                    }
+                }
+
+                this.current_opening = opening.name;
+                //this.depthSearchedThisTurn = -1;
+                let result = this.attempt_move(from, to);
+                if (result) {
+                    this.move_list.push(move);
+                    return true;
+                }
+                return false;
+            } else { // otherwise we must interpret the position and decide if this opening exists
+                let validOpenings: number[] = [];
+                for (let i = 0; i < openings.length; i++) {
+                    if (openings[i].moves.length > this.move_list.length)
+                        if (this.move_list.every((e, j) => e == openings[i].moves[j]))
+                            validOpenings.push(i);
+                }
+
+                if (validOpenings.length == 0) {
+                    return false;
+                }
+
+                // then pick a random opening from the valid ones and make the next move
+                const index = Math.floor(Math.random() * validOpenings.length);
+                const opening = openings[validOpenings[index]];
+                const move = opening.moves[this.move_list.length];
+                move.replace(/\W/g, '');
+                const file = move[move.length - 2];
+                const rank = parseInt(move[move.length - 1]);
+                let from = -1;
+                let to = notationToIndex(rank, file);
+
+                if (move.length == 2) { // pawn move
+                    from = this.find_piece_in_file(this.white_turn() ? Piece.Pawn_W : Piece.Pawn_B, file);
+                } else { // otherwise find the piece with that move as valid
+                    const pieceName = move[0];
+                    let piece = fenToPieceDict[this.white_turn() ? pieceName.toUpperCase() : pieceName.toLowerCase()];
+                    for (let i = 0; i < valid_moves.length; i++) {
+                        if (board[valid_moves[i].from] == piece && valid_moves[i].to == to) {
+                            from = valid_moves[i].from;
+                            break;
+                        }
+                    }
+
+                    // if not found, its likely a pawn capture move
+                    piece = this.white_turn() ? Piece.Pawn_W : Piece.Pawn_B;
+                    if (from == -1 ){
+                        for (let i = 0; i < valid_moves.length; i++) {
+                            if (board[valid_moves[i].from] == piece && valid_moves[i].to == to) {
+                                from = valid_moves[i].from;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                this.current_opening = opening.name;
+                let result = this.attempt_move(from, to);
+                if (result) {
+                    this.move_list.push(move);
+                    return true;
+                }
+                return false;
+            }
+        } catch (e) { // if something goes wrong, just cancel
+            //this.useHistoricalBoard(this.historicalBoards[this.historicalBoards.length - 1]);
+            return false;
+        }
     }
 
     initialize = () => {
         if (this.initialized) return;
 
-        this.wasm_engine = wasm.Engine.new();
+        this.wasm_engine = this.wasm.Engine.new();
         this.initialized = true;
 
         this.wasm_engine.parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         //this.wasm_engine.parse_fen("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8");
         //this.wasm_engine.parse_fen("r1b1kb1r/pp2q1pp/2p4n/3p1P2/3Q4/2NBB3/PPP2PPP/R3K2R w KQkq - 2 10");
+
+        this.push_history();
     }
 }
 
@@ -172,10 +457,10 @@ ctx.addEventListener("message", (e) => {
         {
             // Load the web assembly (workaround because regular importing did not seem to work right with webpack 5)
             require('bandersnatch-wasm').then((w: any) => { 
-                wasm = w;
+                engine.wasm = w;
 
                 require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
-                    memory = m.memory;
+                    engine.memory = m.memory;
                     engine.initialize();
 
                     ctx.postMessage({
@@ -198,13 +483,22 @@ ctx.addEventListener("message", (e) => {
         }
         case EngineCommands.AttemptMove:
         {
-            const result = engine.attempt_move(e.data.fromIndex, e.data.toIndex);
+            let result = false;
+            if (engine.historical_index == 0)
+            {
+                result = engine.attempt_move(e.data.fromIndex, e.data.toIndex);
+                if (result) {
+                    engine.push_history();
+                    engine.move_list.push(engine.generate_move_string(e.data.fromIndex, e.data.toIndex));
+                }
+            }
+
             ctx.postMessage({
                 command: e.data.command,
                 from: e.data.fromIndex,
                 to: e.data.toIndex,
                 whiteTurn: engine.white_turn(),
-                board: result ? { board: engine.board() } : undefined,
+                board: result ? engine.historical_boards[engine.historical_boards.length - 1] : undefined,
                 validMoves: engine.valid_moves(),
                 inCheck: engine.in_check(),
                 captured: engine.piece_captured_this_turn(),
@@ -215,55 +509,64 @@ ctx.addEventListener("message", (e) => {
         }
         case EngineCommands.HistoryGoBack:
         {
-            // engine.stepBack();
-            // const index = engine.historicalBoards.length - 1 + engine.historicalIndex;
-            // ctx.postMessage({
-            //     command: e.data.command,
-            //     board: engine.historicalBoards[index],
-            //     index: index
-            // });
+            engine.step_back();
+            const index = engine.historical_boards.length - 1 + engine.historical_index;
+            ctx.postMessage({
+                command: e.data.command,
+                board: engine.historical_boards[index],
+                index: index
+            });
             break;
         }
         case EngineCommands.HistoryGoForward:
         {
-            // engine.stepForward();
-            // const index = engine.historicalBoards.length - 1 + engine.historicalIndex;
-            // ctx.postMessage({
-            //     command: e.data.command,
-            //     board: engine.historicalBoards[index],
-            //     index: index
-            // });
+            engine.step_forward();
+            const index = engine.historical_boards.length - 1 + engine.historical_index;
+            ctx.postMessage({
+                command: e.data.command,
+                board: engine.historical_boards[index],
+                index: index
+            });
             break;
         }
         case EngineCommands.UndoMove:
         {
-            // if (engine.historicalIndex == 0) {
-            //     engine.undoMove();
-            //     const index = engine.historicalBoards.length - 1;
-            //     ctx.postMessage({
-            //         command: e.data.command,
-            //         board: engine.historicalBoards[index],
-            //         index: index
-            //     });
-            // }
+            if (engine.historical_index == 0) {
+                engine.undo_move();
+                const index = engine.historical_boards.length - 1;
+                ctx.postMessage({
+                    command: e.data.command,
+                    board: engine.historical_boards[index],
+                    index: index
+                });
+            }
             break;
         }
         case EngineCommands.BotBestMove:
         {
-            //if (!(engine.moveCount <= 5 && engine.bookMove()))
-                engine.eval_bot_move(6);
+            if (engine.historical_index != 0)
+                return;
 
-            let board = engine.board();
+            if (!(engine.move_count() <= 5 && engine.book_move())) {
+                if (engine.eval_bot_move(6)) {
+                    engine.push_history();
+                    engine.move_list.push(engine.generate_move_string(engine.best_move().from, engine.best_move().to));
+                }
+            } else {
+                engine.set_depth_searched_last_turn(-1);
+                engine.push_history();
+            }
+
             ctx.postMessage({
                 command: e.data.command,
                 from: engine.best_move().from,
                 to: engine.best_move().to,
                 timeTaken: engine.time_taken_last_turn(),
                 depthSearched: engine.depth_searched_last_turn(),
-                opening: "",
-                movesFound: [],
+                opening: engine.current_opening,
+                movesFound: engine.moves_found_this_turn(),
                 whiteTurn: engine.white_turn(),
-                board: { board: board ? [...board] : undefined },
+                board: engine.historical_boards[engine.historical_boards.length - 1],
                 validMoves: engine.valid_moves(),
                 inCheck: engine.in_check(),
                 captured: engine.piece_captured_this_turn(),
@@ -274,21 +577,31 @@ ctx.addEventListener("message", (e) => {
         }
         case EngineCommands.BotBestMoveIterative:
         {
-            // if (!(engine.moveCount <= 5 && engine.bookMove()))
-                 engine.eval_bot_move_iterative();
+            if (engine.historical_index != 0)
+                return;
+            
+            if (!(engine.move_count() <= 5 && engine.book_move())) {
+                if (engine.eval_bot_move_iterative()) {
+                    engine.push_history();
+                    engine.move_list.push(engine.generate_move_string(engine.best_move().from, engine.best_move().to));
+                }
+            } else {
+                engine.set_depth_searched_last_turn(-1);
+                engine.push_history();
+            }
+
             //console.log(engine.calculate_all_possible_moves(3));
 
-            let board = engine.board();
             ctx.postMessage({
                 command: e.data.command,
                 from: engine.best_move().from,
                 to: engine.best_move().to,
                 timeTaken: engine.time_taken_last_turn(),
                 depthSearched: engine.depth_searched_last_turn(),
-                opening: "",
-                movesFound: [],
+                opening: engine.current_opening,
+                movesFound: engine.moves_found_this_turn(),
                 whiteTurn: engine.white_turn(),
-                board: { board: board ? [...board] : undefined },
+                board: engine.historical_boards[engine.historical_boards.length - 1],
                 validMoves: engine.valid_moves(),
                 inCheck: engine.in_check(),
                 captured: engine.piece_captured_this_turn(),
@@ -301,7 +614,7 @@ ctx.addEventListener("message", (e) => {
             ctx.postMessage({ command: e.data.command, locations: engine.piece_locations() });
             break;
         case EngineCommands.UpdateMaxMoveTime:
-            //engine.searchMaxTime = e.data.time;
+            engine.update_max_search_time(e.data.time);
             break;
         default:
             break;

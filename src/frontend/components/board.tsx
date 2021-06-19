@@ -4,7 +4,7 @@ import React from 'react';
 import { Piece, getPieceName, getPieceNameShort, EngineCommands, Sounds, EvalMove, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation } from "../../definitions";
 import EngineWorker from "worker-loader!../../engine/engine";
 import WasmEngine from "worker-loader!../../engine/wasmEngine";
-import EvalWorker from "worker-loader!../../engine/evaluation";
+import EvalWorker from "worker-loader!../../engine/evaluationWasm";
 import { EvaluationBar } from './evaluationBar';
 import { InfoButton } from './infoButton';
 
@@ -379,8 +379,8 @@ export class Board extends React.Component<Props, State> {
 
     requestEvaluation = () => {
         if (this.nextBoardToEval != undefined) {
-            //this.evalWorker.postMessage({ command: EvalCommands.UpdateState, board: this.nextBoardToEval });
-            //this.evalWorker.postMessage({ command: EvalCommands.Evaluate });
+            this.evalWorker.postMessage({ command: EvalCommands.UpdateState, board: this.nextBoardToEval });
+            this.evalWorker.postMessage({ command: EvalCommands.Evaluate });
             this.nextBoardToEval = undefined;
         }
     }
