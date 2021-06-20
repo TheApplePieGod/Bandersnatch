@@ -29,7 +29,9 @@ interface State {
     historyIndex: number;
     botMaxMoveTime: number;
     settingsTabOpen: boolean;
+    statusDialogText: string;
     currentEngine: number;
+    makeBookMoves: boolean;
 }
 
 interface History {
@@ -43,6 +45,8 @@ interface History {
     opening: string;
     whiteTurn: boolean;
     moveEngine: string;
+    draw: boolean;
+    checkmate: boolean;
 }
 
 export class Board extends React.Component<Props, State> {
@@ -84,7 +88,9 @@ export class Board extends React.Component<Props, State> {
             historyIndex: 0,
             botMaxMoveTime: 3,
             settingsTabOpen: false,
+            statusDialogText: "",
             currentEngine: 1,
+            makeBookMoves: true,
         };
 
         this.wasmWorker.onmessage = this.handleMessage;
@@ -96,6 +102,17 @@ export class Board extends React.Component<Props, State> {
         this.setState({ currentEngine: e.target.value as number }, () => {
             this.engine().postMessage({ command: EngineCommands.SetHistory, boards: this.localHistoricalBoards, index: this.state.historyIndex - this.state.localHistory.length + 1 });
         });
+    }
+
+    statusDialog = () => {
+        return (
+            <SimpleDialog
+                open={this.state.statusDialogText != ""}
+                onClose={() => this.setState({ statusDialogText: "" })}
+            >
+                <Typography color="textSecondary" variant="h3">{this.state.statusDialogText}</Typography>
+            </SimpleDialog>
+        );
     }
 
     settingsTab = () => {
@@ -121,6 +138,15 @@ export class Board extends React.Component<Props, State> {
                         <FormControlLabel
                             control={<Checkbox checked={this.state.showValidMoves} onChange={() => this.setState({ showValidMoves: !this.state.showValidMoves })} />}
                             label={<Typography color="textSecondary">Show Legal Moves</Typography>}
+                        />
+                    </div>
+                    <div>
+                        <InfoButton title="Make Book Moves" dark>
+                            Whether or not the AI should make predetermined opening moves at the start of the game
+                        </InfoButton>
+                        <FormControlLabel
+                            control={<Checkbox checked={this.state.makeBookMoves} onChange={() => this.setState({ makeBookMoves: !this.state.makeBookMoves })} />}
+                            label={<Typography color="textSecondary">Make Book Moves</Typography>}
                         />
                     </div>
                     <div>
@@ -186,7 +212,7 @@ export class Board extends React.Component<Props, State> {
                 </SimpleDialog>
                 <IconButton
                     onClick={() => this.setState({ settingsTabOpen: true })}
-                    style={{ marginLeft: "-0.75rem" }}
+                    style={{ marginLeft: "-0.75rem", color: theme.PALETTE_WHITE }}
                 >
                     <SettingsIcon />
                 </IconButton>
@@ -274,8 +300,10 @@ export class Board extends React.Component<Props, State> {
                 break;
             case EngineCommands.RetrieveBoard:
                 this.localBoard = e.data.board.board;
+                this.nextBoardToEval = e.data.board;
                 this.localHistoricalBoards.push(e.data.board);
                 this.setState({
+                    historyIndex: 0,
                     localHistory: [{
                         lastMoveFrom: -1,
                         lastMoveTo: -1,
@@ -287,6 +315,8 @@ export class Board extends React.Component<Props, State> {
                         searchDepth: 0,
                         whiteTurn: true,
                         moveEngine: "N/A",
+                        draw: false,
+                        checkmate: false
                     }]
                 }, () => {
                     if (!this.rendering)
@@ -302,14 +332,19 @@ export class Board extends React.Component<Props, State> {
                     if (!e.data.draw)
                         validMoves = e.data.validMoves;
 
-                    const checkmate = validMoves.length == 0;
+                    const checkmate = e.data.validMoves.length == 0;
 
                     if (!checkmate && !e.data.draw && this.state.playAgainstBot)
                         this.botMove();
 
                     let soundToPlay = 0;
-                    if (checkmate || e.data.draw) {
+                    let status = "";
+                    if (checkmate) {
                         soundToPlay = Sounds.GameOver;
+                        status = "Checkmate";
+                    } else if (e.data.draw) {
+                        soundToPlay = Sounds.GameOver;
+                        status = "Draw";
                     } else {
                         if (e.data.inCheck)
                             soundToPlay = Sounds.Checked;
@@ -327,6 +362,7 @@ export class Board extends React.Component<Props, State> {
 
                     this.localHistoricalBoards.push(e.data.board);
                     this.setState({
+                        statusDialogText: status,
                         historyIndex: this.state.historyIndex + 1,
                         localHistory: this.state.localHistory.concat([{
                             lastMoveFrom: e.data.from,
@@ -338,7 +374,9 @@ export class Board extends React.Component<Props, State> {
                             opening: "",
                             searchDepth: 0,
                             whiteTurn: e.data.whiteTurn,
-                            moveEngine: "Human"
+                            moveEngine: "Human",
+                            draw: e.data.draw,
+                            checkmate: checkmate
                         }])
                     });
                 } else {
@@ -377,17 +415,22 @@ export class Board extends React.Component<Props, State> {
                     if (!e.data.draw)
                         validMoves = e.data.validMoves;
 
-                    const checkmate = validMoves.length == 0;
+                    const checkmate = e.data.validMoves.length == 0;
     
                     if (!checkmate && !e.data.draw && this.state.botMoveAutoplay) {
-                        this.engine().postMessage({ command: e.data.command });
+                        this.engine().postMessage({ command: e.data.command, bookMoves: this.state.makeBookMoves });
                     } else {
                         this.setState({ waitingForMove: false });
                     }
                     
                     let soundToPlay = 0;
-                    if (checkmate || e.data.draw) {
+                    let status = "";
+                    if (checkmate) {
                         soundToPlay = Sounds.GameOver;
+                        status = "Checkmate";
+                    } else if (e.data.draw) {
+                        soundToPlay = Sounds.GameOver;
+                        status = "Draw"
                     } else {
                         if (e.data.inCheck)
                             soundToPlay = Sounds.Checked;
@@ -405,6 +448,7 @@ export class Board extends React.Component<Props, State> {
 
                     this.localHistoricalBoards.push(e.data.board);
                     this.setState({
+                        statusDialogText: status,
                         historyIndex: this.state.historyIndex + 1,
                         localHistory: this.state.localHistory.concat([{
                             lastMoveFrom: e.data.from,
@@ -416,7 +460,9 @@ export class Board extends React.Component<Props, State> {
                             searchDepth: e.data.depthSearched,
                             opening: e.data.opening,
                             whiteTurn: e.data.whiteTurn,
-                            moveEngine: this.state.currentEngine == 1 ? "WebAssembly" : "Native JS"
+                            moveEngine: this.state.currentEngine == 1 ? "WebAssembly" : "Native JS",
+                            draw: e.data.draw,
+                            checkmate: checkmate
                         }])
                     });
                 }
@@ -441,6 +487,12 @@ export class Board extends React.Component<Props, State> {
                     finalString += line + '\n';
                 }
                 console.log(finalString);
+                break;
+            case EngineCommands.ResetGame:
+            {
+                this.engine().postMessage({ command: EngineCommands.RetrieveBoard });
+                break;
+            }
             default:
                 break;
         }
@@ -519,10 +571,14 @@ export class Board extends React.Component<Props, State> {
     drawBoard = (ctx: CanvasRenderingContext2D) => {
         const { boardSize, localBoard, images, relativeMousePos } = this;
         const { cellSize } = this.state;
-        const { lastMoveTo, lastMoveFrom, validMoves } = this.state.localHistory[this.state.historyIndex];
+        const { lastMoveTo, lastMoveFrom, validMoves, draw, checkmate } = this.state.localHistory[this.state.historyIndex];
 
         if (!localBoard)
             return;
+
+        const lightSqureColor = '#ded6c1';
+        const darkSquareColor = '#403e38';
+        const gameOverColor = '#77736880';
 
         let xPos = 0;
         let yPos = 0;
@@ -531,7 +587,7 @@ export class Board extends React.Component<Props, State> {
                 const boardIndex = (y * boardSize) + x;
                 const piece = localBoard[boardIndex];
 
-                ctx.fillStyle = (x + y) % 2 == 1 ? '#403e38' : '#ded6c1';
+                ctx.fillStyle = (x + y) % 2 == 1 ? darkSquareColor : lightSqureColor;
                 ctx.fillRect(xPos, yPos, cellSize, cellSize);
 
                 if (boardIndex == this.draggingIndex) {
@@ -554,6 +610,12 @@ export class Board extends React.Component<Props, State> {
                     if (piece in images && images[piece].complete)
                         if (boardIndex != this.draggingIndex)
                             ctx.drawImage(images[piece], xPos, yPos, cellSize, cellSize);
+                }
+
+                // draw/checkmate has a greyed out board
+                if (draw || checkmate) {
+                    ctx.fillStyle = gameOverColor;
+                    ctx.fillRect(xPos, yPos, cellSize, cellSize);
                 }
 
                 const fontSize = cellSize * 0.25;
@@ -685,10 +747,20 @@ export class Board extends React.Component<Props, State> {
         this.engine().postMessage({ command: EngineCommands.RetrievePieceLocations });
     }
 
+    resetGame = () => {
+        this.localHistoricalBoards = [];
+        this.engineWorker.postMessage({ command: EngineCommands.ResetGame, retrieve: true });
+        this.wasmWorker.postMessage({ command: EngineCommands.ResetGame, retrieve: false });
+        this.evalWorker.postMessage({ command: EngineCommands.ResetGame, retrieve: false });
+    }
+
     botMove = () => {
         if (!this.state.waitingForMove) {
             this.setState({ waitingForMove: true });
-            this.engine().postMessage({ command: this.state.botIterative ? EngineCommands.BotBestMoveIterative : EngineCommands.BotBestMove });
+            this.engine().postMessage({
+                command: this.state.botIterative ? EngineCommands.BotBestMoveIterative : EngineCommands.BotBestMove,
+                bookMoves: this.state.makeBookMoves 
+            });
         }
     }
 
@@ -752,6 +824,13 @@ export class Board extends React.Component<Props, State> {
                 </div>
                 <br />
                 <div>
+                    <InfoButton title="Reset Board">
+                        This will reset the board back to the original position and clear all move history
+                    </InfoButton>
+                    <Button disabled={this.state.waitingForMove} variant="contained" onClick={this.resetGame}>Reset Board</Button>
+                </div>
+                <br />
+                <div>
                     <InfoButton title="Print Piece Locations">
                         This is a debugging tool which will print all of the board indexes of each piece into the console
                     </InfoButton>
@@ -800,6 +879,7 @@ export class Board extends React.Component<Props, State> {
                 <br />
                 <br />
             </div>
+            {this.statusDialog()}
         </div>
         );
     }

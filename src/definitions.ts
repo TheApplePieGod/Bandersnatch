@@ -64,6 +64,7 @@ export enum EngineCommands {
     UpdateThreadingInfo = 13,
     BotBestMoveThreaded = 14,
     SetHistory = 15,
+    ResetGame = 16,
 }
 
 export enum EvalCommands {
@@ -167,6 +168,17 @@ export const fenToPieceDict: Record<string, number> = {
 }
 
 // adapted from https://github.com/SebLague/Chess-AI/blob/main/Assets/Scripts/Core/PieceSquareTable.cs
+export const emptySquareTable: number[] = [
+    0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0
+];
+
 export const pawnSquareTable: number[] = [
     0,  0,  0,  0,  0,  0,  0,  0,
     50, 50, 50, 50, 50, 50, 50, 50,

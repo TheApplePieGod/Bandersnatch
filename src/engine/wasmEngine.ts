@@ -397,8 +397,10 @@ export class WasmEngine {
                     }
                 }
 
+                if (from == -1 || to == -1)
+                    return false;
+
                 this.current_opening = opening.name;
-                //this.depthSearchedThisTurn = -1;
                 let result = this.attempt_move(from, to);
                 if (result) {
                     this.move_list.push(move);
@@ -453,6 +455,9 @@ export class WasmEngine {
                     }
                 }
 
+                if (from == -1 || to == -1)
+                    return false;
+
                 this.current_opening = opening.name;
                 let result = this.attempt_move(from, to);
                 if (result) {
@@ -481,6 +486,16 @@ export class WasmEngine {
 
         this.push_history();
     }
+
+    reset_game = () => {
+        if (!this.initialized) return;
+        this.wasm_engine.parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        this.historical_boards = [];
+        this.historical_index = 0;
+        this.current_opening = "";
+        this.move_list = [];
+        this.push_history();
+    }
 }
 
 const engine = new WasmEngine();
@@ -496,8 +511,8 @@ ctx.addEventListener("message", (e) => {
                 require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
                     engine.memory = m.memory;
                     engine.initialize();
-                    engine.set_thread_count(e.data.threadCount);
-                    engine.set_thread_index(e.data.threadIndex);
+                    //engine.set_thread_count(e.data.threadCount);
+                    //engine.set_thread_index(e.data.threadIndex);
 
                     ctx.postMessage({
                         command: e.data.command,
@@ -591,7 +606,7 @@ ctx.addEventListener("message", (e) => {
 
             let from = 0;
             let to = 0;
-            if (!(engine.move_count() <= 5 && engine.book_move())) {
+            if (!(e.data.bookMoves && engine.move_count() <= 5 && engine.book_move())) {
                 if (engine.eval_bot_move(6, false)) {
                     engine.push_history();
                     from = engine.best_move().from;
@@ -645,7 +660,7 @@ ctx.addEventListener("message", (e) => {
             
             let from = 0;
             let to = 0;
-            if (!(engine.move_count() <= 5 && engine.book_move())) {
+            if (!(e.data.bookMoves && engine.move_count() <= 5 && engine.book_move())) {
                 if (engine.eval_bot_move_iterative()) {
                     engine.push_history();
                     from = engine.best_move().from;
@@ -684,6 +699,11 @@ ctx.addEventListener("message", (e) => {
             engine.historical_boards = e.data.boards;
             engine.historical_index = e.data.index;
             engine.use_historical_board(e.data.boards[e.data.boards.length - 1 + e.data.index]);
+            break;
+        }
+        case EngineCommands.ResetGame:
+        {
+            engine.reset_game();
             break;
         }
         case EngineCommands.RetrievePieceLocations:

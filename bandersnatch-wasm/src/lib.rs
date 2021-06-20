@@ -1,5 +1,6 @@
 mod defs;
 
+use defs::EMPTY_SQUARE_TABLE;
 use wasm_bindgen::prelude::*;
 use std::{cmp::{max, min}, intrinsics::transmute, mem::swap, usize, vec};
 
@@ -284,6 +285,11 @@ impl Engine {
 
     // todo: add error handling
     pub fn parse_fen(&mut self, fen: &str) {
+        self.board = [Piece::Empty; 64];
+        for i in 0..self.piece_locations.len() {
+            self.piece_locations[i].clear();
+        }
+
         let fields: Vec<&str> = fen.split(" ").collect();
         if fields.len() != 6 {
             return; // invalid fen string
@@ -683,6 +689,18 @@ impl Engine {
             Piece::Knight_W | Piece::Knight_B => Value::KNIGHT,
             Piece::Pawn_W | Piece::Pawn_B => Value::PAWN,
             _ => 0
+        }
+    }
+
+    fn get_piece_table(piece: Piece) -> &'static [i32] {
+        match piece {
+            Piece::Queen_W | Piece::Queen_B => &QUEEN_SQUARE_TABLE,
+            Piece::Rook_W | Piece::Rook_B => &ROOK_SQUARE_TABLE,
+            Piece::Bishop_W | Piece::Bishop_B => &BISHOP_SQUARE_TABLE,
+            Piece::Knight_W | Piece::Knight_B => &KNIGHT_SQUARE_TABLE,
+            Piece::Pawn_W | Piece::Pawn_B => &PAWN_SQUARE_TABLE,
+            Piece::King_W | Piece::King_B => &KING_MIDDLE_GAME_SQUARE_TABLE,
+            _ => &EMPTY_SQUARE_TABLE
         }
     }
 
@@ -1468,6 +1486,8 @@ impl Engine {
             if moving_piece == Piece::Pawn_W || moving_piece == Piece::Pawn_B {
                 score += Engine::get_piece_value(promoting);
             }
+
+            score += Engine::read_square_table_value(moves[i].to as usize, Engine::get_piece_table(moving_piece), self.white_turn);
 
             moves[i].score = score;
 

@@ -1,5 +1,5 @@
 import bigInt from "big-integer";
-import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, EvalMove, EngineCommands, kingMiddleGameSquareTable, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation, getPieceNameShort, fenToPieceDict } from "../definitions";
+import { bishopSquareTable, knightSquareTable, pawnSquareTable, Piece, queenSquareTable, rookSquareTable, Value, getPieceName, EvalMove, EngineCommands, kingMiddleGameSquareTable, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation, getPieceNameShort, fenToPieceDict, emptySquareTable } from "../definitions";
 import { openings } from "./openings";
 
 // We alias self to ctx and give it our newly created type
@@ -301,7 +301,7 @@ export class Engine {
         return board;
     }
 
-    traceValidSquares = (index: number, slopeX: number, slopeY: number, white: boolean, onlyEmpty: boolean, updatePins: boolean, x: number, y: number, inArray: number[]) => {
+    traceValidSquares = (index: number, slopeX: number, slopeY: number, white: boolean, onlyEmpty: boolean, updatePins: boolean, x: number, y: number, attackOnly: boolean, inArray: number[]) => {
         let currentIndex = index;
         const xyMax = this.boardSize - 1;
         const length = this.board.length;
@@ -316,7 +316,7 @@ export class Engine {
                             inArray.push(currentIndex);
                         else
                             break;
-                    } else if (this.board[currentIndex] == Piece.Empty || (white && this.board[currentIndex] < 7) || (!white && this.board[currentIndex] >= 7)) {
+                    } else if (!attackOnly && (this.board[currentIndex] == Piece.Empty) || (white && this.board[currentIndex] < 7) || (!white && this.board[currentIndex] >= 7)) {
                         inArray.push(currentIndex);
                     }
                     obstructed = this.board[currentIndex] != Piece.Empty;
@@ -357,7 +357,7 @@ export class Engine {
     }
 
     // todo: attack only should apply on slide pieces as well
-    getValidSquares = (index: number, piece: number, attackOnly: boolean, updatePins: boolean,inArray: number[]) => {
+    getValidSquares = (index: number, piece: number, attackOnly: boolean, updatePins: boolean, inArray: number[]) => {
         const x = index % this.boardSize;
         const y = (index / this.boardSize) << 0;
         const xyMax = this.boardSize - 1;
@@ -366,28 +366,28 @@ export class Engine {
         switch (piece) {
             case Piece.Rook_W:
             case Piece.Rook_B:
-                this.traceValidSquares(index, 1, 0, isWhite, false, updatePins, x, y, inArray); // right
-                this.traceValidSquares(index, -1, 0, isWhite, false, updatePins, x, y, inArray); // left
-                this.traceValidSquares(index, 0, 1, isWhite, false, updatePins, x, y, inArray); // down
-                this.traceValidSquares(index, 0, -1, isWhite, false, updatePins, x, y, inArray); // up
+                this.traceValidSquares(index, 1, 0, isWhite, false, updatePins, x, y, attackOnly, inArray); // right
+                this.traceValidSquares(index, -1, 0, isWhite, false, updatePins, x, y, attackOnly, inArray); // left
+                this.traceValidSquares(index, 0, 1, isWhite, false, updatePins, x, y, attackOnly, inArray); // down
+                this.traceValidSquares(index, 0, -1, isWhite, false, updatePins, x, y, attackOnly, inArray); // up
                 break;
             case Piece.Queen_W:
             case Piece.Queen_B:
-                this.traceValidSquares(index, 1, 0, isWhite, false, updatePins, x, y, inArray); // right
-                this.traceValidSquares(index, -1, 0, isWhite, false, updatePins, x, y, inArray); // left
-                this.traceValidSquares(index, 0, 1, isWhite, false, updatePins, x, y, inArray); // down
-                this.traceValidSquares(index, 0, -1, isWhite, false, updatePins, x, y, inArray); // up
-                this.traceValidSquares(index, 1, -1, isWhite, false, updatePins, x, y, inArray); // up right
-                this.traceValidSquares(index, -1, -1, isWhite, false, updatePins, x, y, inArray); // up left
-                this.traceValidSquares(index, 1, 1, isWhite, false, updatePins, x, y, inArray); // down right
-                this.traceValidSquares(index, -1, 1, isWhite, false, updatePins, x, y, inArray); // down left
+                this.traceValidSquares(index, 1, 0, isWhite, false, updatePins, x, y, attackOnly, inArray); // right
+                this.traceValidSquares(index, -1, 0, isWhite, false, updatePins, x, y, attackOnly, inArray); // left
+                this.traceValidSquares(index, 0, 1, isWhite, false, updatePins, x, y, attackOnly, inArray); // down
+                this.traceValidSquares(index, 0, -1, isWhite, false, updatePins, x, y, attackOnly, inArray); // up
+                this.traceValidSquares(index, 1, -1, isWhite, false, updatePins, x, y, attackOnly, inArray); // up right
+                this.traceValidSquares(index, -1, -1, isWhite, false, updatePins, x, y, attackOnly, inArray); // up left
+                this.traceValidSquares(index, 1, 1, isWhite, false, updatePins, x, y, attackOnly, inArray); // down right
+                this.traceValidSquares(index, -1, 1, isWhite, false, updatePins, x, y, attackOnly, inArray); // down left
                 break;
             case Piece.Bishop_W:
             case Piece.Bishop_B:
-                this.traceValidSquares(index, 1, -1, isWhite, false, updatePins, x, y, inArray); // up right
-                this.traceValidSquares(index, -1, -1, isWhite, false, updatePins, x, y, inArray); // up left
-                this.traceValidSquares(index, 1, 1, isWhite, false, updatePins, x, y, inArray); // down right
-                this.traceValidSquares(index, -1, 1, isWhite, false, updatePins, x, y, inArray); // down left
+                this.traceValidSquares(index, 1, -1, isWhite, false, updatePins, x, y, attackOnly, inArray); // up right
+                this.traceValidSquares(index, -1, -1, isWhite, false, updatePins, x, y, attackOnly, inArray); // up left
+                this.traceValidSquares(index, 1, 1, isWhite, false, updatePins, x, y, attackOnly, inArray); // down right
+                this.traceValidSquares(index, -1, 1, isWhite, false, updatePins, x, y, attackOnly, inArray); // down left
                 break;
             case Piece.Pawn_W:
             case Piece.Pawn_B:
@@ -495,14 +495,14 @@ export class Engine {
     getValidCastleSquares = (attackedSquares: number[], inArray: EvalMove[]) => {
         if (this.whiteTurn) {
             let traced: number[] = [];
-            this.traceValidSquares(60, 1, 0, false, true, false, 4, 7, traced);
+            this.traceValidSquares(60, 1, 0, false, true, false, 4, 7, false, traced);
             if ((this.castleStatus & CastleStatus.WhiteKing) && this.board[63] == Piece.Rook_W && traced.length == 2) {
                 if (!attackedSquares.includes(60) && !attackedSquares.includes(61) && !attackedSquares.includes(62)) {
                     inArray.push({ from: 60, to: 62, data: 0, score: 0 });
                 }
             }
             traced = [];
-            this.traceValidSquares(60, -1, 0, false, true, false, 4, 7, traced);
+            this.traceValidSquares(60, -1, 0, false, true, false, 4, 7, false, traced);
             if ((this.castleStatus & CastleStatus.WhiteQueen) && this.board[56] == Piece.Rook_W && traced.length == 3) {
                 if (!attackedSquares.includes(60) && !attackedSquares.includes(59) && !attackedSquares.includes(58)) {
                     inArray.push({ from: 60, to: 58, data: 0, score: 0 });
@@ -510,14 +510,14 @@ export class Engine {
             }
         } else {
             let traced: number[] = [];
-            this.traceValidSquares(4, 1, 0, false, true, false, 4, 0, traced);
+            this.traceValidSquares(4, 1, 0, false, true, false, 4, 0, false, traced);
             if ((this.castleStatus & CastleStatus.BlackKing) && this.board[7] == Piece.Rook_B && traced.length == 2) {
                 if (!attackedSquares.includes(4) && !attackedSquares.includes(5) && !attackedSquares.includes(6)) {
                     inArray.push({ from: 4, to: 6, data: 0, score: 0 });
                 }
             }
             traced = [];
-            this.traceValidSquares(4, -1, 0, false, true, false, 4, 0, traced);
+            this.traceValidSquares(4, -1, 0, false, true, false, 4, 0, false, traced);
             if ((this.castleStatus & CastleStatus.BlackQueen) && this.board[0] == Piece.Rook_B && traced.length == 3) {
                 if (!attackedSquares.includes(4) && !attackedSquares.includes(3) && !attackedSquares.includes(2)) {
                     inArray.push({ from: 4, to: 2, data: 0, score: 0 });
@@ -634,6 +634,21 @@ export class Engine {
         this.moveRepCount++;
     }
 
+    removePiece = (piece: number, index: number) => {
+        const foundIndex = this.pieceLocations[piece].indexOf(index);
+        if (foundIndex != -1) {
+            this.pieceLocations[piece][foundIndex] = this.pieceLocations[piece][this.pieceLocations[piece].length - 1];
+            this.pieceLocations[piece].pop();
+        }
+    }
+
+    movePiece = (piece: number, index: number, newLocation: number) => {
+        const foundIndex = this.pieceLocations[piece].indexOf(index);
+        if (foundIndex != -1) {
+            this.pieceLocations[piece][foundIndex] = newLocation;
+        }
+    }
+
     forceMakeMove = (fromIndex: number, move: MoveInfo, finishTurn: boolean) => {
         const toIndex = move.index;
         const movingPiece = this.board[fromIndex];
@@ -649,14 +664,14 @@ export class Engine {
         const y = (toIndex / this.boardSize) << 0;
         if (this.board[toIndex] == Piece.Pawn_W && y == 0) {
             this.board[toIndex] = move.data;
-            this.pieceLocations[Piece.Pawn_W].splice(this.pieceLocations[Piece.Pawn_W].indexOf(fromIndex), 1); // remove pawn entry
+            this.removePiece(Piece.Pawn_W, fromIndex);
             this.pieceLocations[move.data].push(toIndex); // add new piece entry
             this.boardDelta.push({ index: -1, piece: move.data, target: toIndex }); // add promotion delta
             promoted = true;
         }
         else if (this.board[toIndex] == Piece.Pawn_B && y == 7) {
             this.board[toIndex] = move.data;
-            this.pieceLocations[Piece.Pawn_B].splice(this.pieceLocations[Piece.Pawn_B].indexOf(fromIndex), 1); // remove pawn entry
+            this.removePiece(Piece.Pawn_B, fromIndex);
             this.pieceLocations[move.data].push(toIndex); // add new piece entry
             this.boardDelta.push({ index: -1, piece: move.data, target: toIndex }); // add promotion delta
             promoted = true;
@@ -685,12 +700,12 @@ export class Engine {
 
         // update moved piece position unless promoted since that is already handled
         if (!promoted) {
-            this.pieceLocations[movingPiece].splice(this.pieceLocations[movingPiece].indexOf(fromIndex), 1, toIndex); // update stored position
+            this.movePiece(movingPiece, fromIndex, toIndex);
         }
 
         // remove captured piece
         if (capturedPiece != Piece.Empty) {
-            this.pieceLocations[capturedPiece].splice(this.pieceLocations[capturedPiece].indexOf(toIndex), 1); // remove entry
+            this.removePiece(capturedPiece, toIndex);
         }
 
         if (finishTurn) {
@@ -712,20 +727,19 @@ export class Engine {
     unmakeMove = (deltas: BoardDelta[]) => {
         this.whiteTurn = !this.whiteTurn;
 
-        // todo: optimize this splice stuff throughout
         for (let i = 0; i < deltas.length; i++) {
             if (deltas[i].piece != Piece.Empty) { // ignore any empty piece entries
                 if (deltas[i].index == -1) { // if the original index is -1, it means the piece was created from promotion, so remove the piece
-                    this.pieceLocations[deltas[i].piece].splice(this.pieceLocations[deltas[i].piece].indexOf(deltas[i].target), 1); // remove entry
+                    this.removePiece(deltas[i].piece, deltas[i].target);
                 }
                 else if (this.board[deltas[i].index] != Piece.Empty) { // was captured so add the piece back to register
                     this.pieceLocations[deltas[i].piece].push(deltas[i].index);
                 } else if (deltas[i].target != -1) { // otherwise just move it back
                     const foundIndex = this.pieceLocations[deltas[i].piece].indexOf(deltas[i].target);
-                        if (foundIndex != -1)
-                            this.pieceLocations[deltas[i].piece].splice(foundIndex, 1, deltas[i].index); // replace with new location
-                        else
-                            this.pieceLocations[deltas[i].piece].push(deltas[i].index);
+                    if (foundIndex != -1)
+                        this.pieceLocations[deltas[i].piece][foundIndex] = deltas[i].index; // replace with new location
+                    else
+                        this.pieceLocations[deltas[i].piece].push(deltas[i].index);
                 }
             }
 
@@ -742,14 +756,14 @@ export class Engine {
             if ((this.castleStatus & CastleStatus.WhiteKing) && toIndex == 62) {
                 this.boardDelta.push({ index: 63, piece: this.board[63], target: 61 });
                 this.boardDelta.push({ index: 61, piece: this.board[61], target: -1 });
-                this.pieceLocations[Piece.Rook_W].splice(this.pieceLocations[Piece.Rook_W].indexOf(63), 1, 61); // replace with new location
+                this.movePiece(Piece.Rook_W, 63, 61); // replace with new location
                 this.board[63] = Piece.Empty;
                 this.board[61] = Piece.Rook_W;
                 castled = true;
             } else if ((this.castleStatus & CastleStatus.WhiteQueen) && toIndex == 58) {
                 this.boardDelta.push({ index: 56, piece: this.board[56], target: 59 });
                 this.boardDelta.push({ index: 59, piece: this.board[59], target: -1 });
-                this.pieceLocations[Piece.Rook_W].splice(this.pieceLocations[Piece.Rook_W].indexOf(56), 1, 59); // replace with new location
+                this.movePiece(Piece.Rook_W, 56, 59); // replace with new location
                 this.board[56] = Piece.Empty;
                 this.board[59] = Piece.Rook_W;
                 castled = true;
@@ -762,14 +776,14 @@ export class Engine {
             if ((this.castleStatus & CastleStatus.BlackKing) && toIndex == 6) {
                 this.boardDelta.push({ index: 7, piece: this.board[7], target: 5 });
                 this.boardDelta.push({ index: 5, piece: this.board[5], target: -1 });
-                this.pieceLocations[Piece.Rook_B].splice(this.pieceLocations[Piece.Rook_B].indexOf(7), 1, 5); // replace with new location
+                this.movePiece(Piece.Rook_B, 7, 5); // replace with new location
                 this.board[7] = Piece.Empty;
                 this.board[5] = Piece.Rook_B;
                 castled = true;
             } else if ((this.castleStatus & CastleStatus.BlackQueen) && toIndex == 2) {
                 this.boardDelta.push({ index: 0, piece: this.board[0], target: 3 });
                 this.boardDelta.push({ index: 3, piece: this.board[3], target: -1 });
-                this.pieceLocations[Piece.Rook_B].splice(this.pieceLocations[Piece.Rook_B].indexOf(0), 1, 3); // replace with new location
+                this.movePiece(Piece.Rook_B, 0, 3); // replace with new location
                 this.board[0] = Piece.Empty;
                 this.board[3] = Piece.Rook_B;
                 castled = true;
@@ -1004,6 +1018,31 @@ export class Engine {
         }
     }
 
+    getPieceTable = (piece: number) => {
+        switch (piece) {
+            case Piece.Pawn_W:
+            case Piece.Pawn_B:
+                return pawnSquareTable;
+            case Piece.Knight_W:
+            case Piece.Knight_B:
+                return knightSquareTable;
+            case Piece.Bishop_W:
+            case Piece.Bishop_B:
+                return bishopSquareTable;
+            case Piece.Rook_W:
+            case Piece.Rook_B:
+                return rookSquareTable;
+            case Piece.Queen_W:
+            case Piece.Queen_B:
+                return queenSquareTable;
+            case Piece.King_W:
+            case Piece.King_B:
+                return kingMiddleGameSquareTable;
+            default:
+                return emptySquareTable;
+        }
+    }
+
     countMaterial = (white: boolean) => {
         let value: number = 0;
 
@@ -1043,6 +1082,8 @@ export class Engine {
             if (movingPiece == Piece.Pawn_W || movingPiece == Piece.Pawn_B) {
                 score += this.getPieceValue(promoting);
             }
+
+            score += this.readSquareTableValue(moves[i].to, this.getPieceTable(movingPiece), this.whiteTurn); 
 
             moves[i].score = score;
 
@@ -1325,6 +1366,9 @@ export class Engine {
                     }
                 }
 
+                if (from == -1 || to == -1)
+                    return false;
+
                 this.currentOpening = opening.name;
                 this.depthSearchedThisTurn = -1;
                 this.updateCastleStatus(from, to);
@@ -1377,6 +1421,9 @@ export class Engine {
                         }
                     }
                 }
+
+                if (from == -1 || to == -1)
+                    return false;
 
                 this.currentOpening = opening.name;
                 this.depthSearchedThisTurn = -1;
@@ -1480,6 +1527,22 @@ export class Engine {
 
         return true;
     }
+
+    resetGame = () => {
+        this.historicalBoards = [];
+        this.historicalIndex = 0;
+        this.currentOpening = "";
+        this.moveList = [];
+        for (let i = 0; i < this.pieceLocations.length; i++) {
+            this.pieceLocations[i] = [];
+        }
+        this.board = this.parseFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        this.boardHash = this.hashBoard();
+        this.repetitionHistory = [];
+        this.repetitionHistory.push(this.boardHash);
+        this.allValidMoves = this.getAllValidMoves();
+        this.historicalBoards.push(this.createHistoricalBoard());
+    }
 }
 
 const engine = new Engine();
@@ -1552,7 +1615,7 @@ ctx.addEventListener("message", (e) => {
         }
         case EngineCommands.BotBestMove:
         {
-            if (!(engine.moveCount <= 5 && engine.bookMove()))
+            if (!(e.data.bookMoves && engine.moveCount <= 5 && engine.bookMove()))
                 engine.evalBotMove(6);
             ctx.postMessage({
                 command: e.data.command,
@@ -1574,7 +1637,7 @@ ctx.addEventListener("message", (e) => {
         }
         case EngineCommands.BotBestMoveIterative:
         {
-            if (!(engine.moveCount <= 5 && engine.bookMove()))
+            if (!(e.data.bookMoves && engine.moveCount <= 5 && engine.bookMove()))
                 engine.evalBotMoveIterative();
             //console.log(engine.calculateAllPossibleMoves(5));
             ctx.postMessage({
@@ -1600,6 +1663,15 @@ ctx.addEventListener("message", (e) => {
             engine.historicalBoards = e.data.boards;
             engine.historicalIndex = e.data.index;
             engine.useHistoricalBoard(e.data.boards[e.data.boards.length - 1 + e.data.index]);
+            break;
+        }
+        case EngineCommands.ResetGame:
+        {
+            engine.resetGame();
+            ctx.postMessage({
+                command: e.data.command,
+                retrieve: e.data.retrieve
+            });
             break;
         }
         case EngineCommands.RetrievePieceLocations:
