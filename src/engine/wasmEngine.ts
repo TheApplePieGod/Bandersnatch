@@ -20,6 +20,8 @@ export class WasmEngine {
     historical_index = 0;
     current_opening = "";
     move_list: string[] = [];
+    book_move_from = 0;
+    book_move_to = 0;
 
     constructor() {
         
@@ -248,7 +250,8 @@ export class WasmEngine {
             pieceLocations: this.piece_locations(),
             moveCount: this.move_count(),
             moveRepCount: this.move_rep_count(),
-            repetitionHistory: rep_history ? [...rep_history] : undefined
+            repetitionHistory: rep_history ? [...rep_history] : undefined,
+            moveList: [...this.move_list]
         } as HistoricalBoard;
     }
 
@@ -269,6 +272,7 @@ export class WasmEngine {
         this.set_move_count(board.moveCount);
         this.set_move_rep_count(board.moveCount);
         this.set_repetition_history(board.repetitionHistory);
+        this.move_list = [...board.moveList];
         this.wasm_engine.use_historical_board();
     }
 
@@ -398,6 +402,8 @@ export class WasmEngine {
                 let result = this.attempt_move(from, to);
                 if (result) {
                     this.move_list.push(move);
+                    this.book_move_from = from;
+                    this.book_move_to = to;
                     return true;
                 }
                 return false;
@@ -451,6 +457,8 @@ export class WasmEngine {
                 let result = this.attempt_move(from, to);
                 if (result) {
                     this.move_list.push(move);
+                    this.book_move_from = from;
+                    this.book_move_to = to;
                     return true;
                 }
                 return false;
@@ -469,7 +477,7 @@ export class WasmEngine {
 
         this.wasm_engine.parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         //this.wasm_engine.parse_fen("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8");
-        //this.wasm_engine.parse_fen("r1b1kb1r/pp2q1pp/2p4n/3p1P2/3Q4/2NBB3/PPP2PPP/R3K2R w KQkq - 2 10");
+        //this.wasm_engine.parse_fen("rnbqkbnr/pppp1ppp/8/4p3/8/2NP4/PPP1PPPP/R1BQKBNR b KQkq - 0 8");
 
         this.push_history();
     }
@@ -508,10 +516,9 @@ ctx.addEventListener("message", (e) => {
         }
         case EngineCommands.RetrieveBoard:
         {
-            let board = engine.board();
             ctx.postMessage({
                 command: e.data.command,
-                board: board ? [...board] : undefined,
+                board: engine.historical_boards[engine.historical_boards.length - 1],
                 validMoves: engine.valid_moves()
             });
             break;
@@ -582,20 +589,26 @@ ctx.addEventListener("message", (e) => {
             if (engine.historical_index != 0)
                 return;
 
-            //if (!(engine.move_count() <= 5 && engine.book_move())) {
+            let from = 0;
+            let to = 0;
+            if (!(engine.move_count() <= 5 && engine.book_move())) {
                 if (engine.eval_bot_move(6, false)) {
                     engine.push_history();
-                    engine.move_list.push(engine.generate_move_string(engine.best_move().from, engine.best_move().to));
+                    from = engine.best_move().from;
+                    to = engine.best_move().to;
+                    engine.move_list.push(engine.generate_move_string(from, to));
                 }
-            // } else {
-            //     engine.set_depth_searched_last_turn(-1);
-            //     engine.push_history();
-            // }
+            } else {
+                engine.set_depth_searched_last_turn(-1);
+                engine.push_history();
+                from = engine.book_move_from;
+                to = engine.book_move_to;
+            }
 
             ctx.postMessage({
                 command: e.data.command,
-                from: engine.best_move().from,
-                to: engine.best_move().to,
+                from: from,
+                to: to,
                 timeTaken: engine.time_taken_last_turn(),
                 depthSearched: engine.depth_searched_last_turn(),
                 opening: engine.current_opening,
@@ -615,10 +628,7 @@ ctx.addEventListener("message", (e) => {
             if (engine.historical_index != 0)
                 return;
 
-            if (engine.eval_bot_move(6, true)) {
-                //engine.push_history();
-                //engine.move_list.push(engine.generate_move_string(engine.best_move().from, engine.best_move().to));
-            }
+            engine.eval_bot_move(6, true);
 
             ctx.postMessage({
                 command: e.data.command,
@@ -633,22 +643,28 @@ ctx.addEventListener("message", (e) => {
             if (engine.historical_index != 0)
                 return;
             
+            let from = 0;
+            let to = 0;
             if (!(engine.move_count() <= 5 && engine.book_move())) {
                 if (engine.eval_bot_move_iterative()) {
                     engine.push_history();
-                    engine.move_list.push(engine.generate_move_string(engine.best_move().from, engine.best_move().to));
+                    from = engine.best_move().from;
+                    to = engine.best_move().to;
+                    engine.move_list.push(engine.generate_move_string(from, to));
                 }
             } else {
                 engine.set_depth_searched_last_turn(-1);
                 engine.push_history();
+                from = engine.book_move_from;
+                to = engine.book_move_to;
             }
 
             //console.log(engine.calculate_all_possible_moves(3));
 
             ctx.postMessage({
                 command: e.data.command,
-                from: engine.best_move().from,
-                to: engine.best_move().to,
+                from: from,
+                to: to,
                 timeTaken: engine.time_taken_last_turn(),
                 depthSearched: engine.depth_searched_last_turn(),
                 opening: engine.current_opening,
@@ -661,6 +677,13 @@ ctx.addEventListener("message", (e) => {
                 castled: engine.castled_this_turn(),
                 draw: engine.check_for_draw()
             });
+            break;
+        }
+        case EngineCommands.SetHistory:
+        {
+            engine.historical_boards = e.data.boards;
+            engine.historical_index = e.data.index;
+            engine.use_historical_board(e.data.boards[e.data.boards.length - 1 + e.data.index]);
             break;
         }
         case EngineCommands.RetrievePieceLocations:

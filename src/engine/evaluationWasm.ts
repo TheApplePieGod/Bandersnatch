@@ -18,7 +18,7 @@ require('bandersnatch-wasm').then((w: any) => {
     require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
         engine.memory = m.memory;
         engine.initialize();
-        engine.update_max_search_time(5000);
+        engine.update_max_search_time(3000);
     });
 });
 

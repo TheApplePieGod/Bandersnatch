@@ -168,7 +168,8 @@ export class Engine {
             pieceLocations: newPieceLocations,
             moveCount: this.moveCount,
             moveRepCount: this.moveRepCount,
-            repetitionHistory: [...this.repetitionHistory]
+            repetitionHistory: [...this.repetitionHistory],
+            moveList: [...this.moveList]
         });
     }
 
@@ -184,6 +185,7 @@ export class Engine {
         this.moveCount = historicalBoard.moveCount;
         this.moveRepCount = historicalBoard.moveRepCount;
         this.repetitionHistory = [...historicalBoard.repetitionHistory];
+        this.moveList = [...historicalBoard.moveList];
         this.boardHash = this.hashBoard();
         this.savedEvaluations = {};
         this.boardDelta = [];
@@ -1492,7 +1494,7 @@ ctx.addEventListener("message", (e) => {
         case EngineCommands.RetrieveBoard:
             ctx.postMessage({
                 command: e.data.command,
-                board: engine.board,
+                board: engine.historicalBoards[engine.historicalBoards.length - 1],
                 validMoves: engine.allValidMoves
             });
             break;
@@ -1591,6 +1593,13 @@ ctx.addEventListener("message", (e) => {
                 castled: engine.castledThisTurn,
                 draw: engine.checkForDraw()
             });
+            break;
+        }
+        case EngineCommands.SetHistory:
+        {
+            engine.historicalBoards = e.data.boards;
+            engine.historicalIndex = e.data.index;
+            engine.useHistoricalBoard(e.data.boards[e.data.boards.length - 1 + e.data.index]);
             break;
         }
         case EngineCommands.RetrievePieceLocations:

@@ -6,12 +6,13 @@ export const PALETTE_RED: string = "#AC0E3E";
 export const PALETTE_WHITE: string = "#FEFFF5";
 export const PALETTE_DARK_WHITE: string = "#CECEC2";
 export const PALETTE_BLACK: string = "#19181D";
+export const PALETTE_DARKER_BLACK: string = "35333a";
 export const PALETTE_LIGHT_BLACK: string = "#5B5765";
 
 export const createApplicationTheme = memoizeOne(() => {
 	let theme = createMuiTheme({
 		palette: {
-			type: "dark",
+			type: "light",
 			primary: {
 				main: PALETTE_RED,
 			},
@@ -35,6 +36,20 @@ export const createApplicationTheme = memoizeOne(() => {
 					backgroundColor: PALETTE_WHITE
 				}
 			},
+            MuiButton: {
+                contained: {
+                    "&$disabled": {
+                        backgroundColor: PALETTE_DARKER_BLACK
+                    }
+                }
+            },
+            MuiCheckbox: {
+                colorSecondary: {
+                    "&$checked": {
+                        color: PALETTE_BLACK
+                    }
+                }
+            },
 			// MuiCssBaseline: {
 			// 	"@global": {
 			// 		body: {

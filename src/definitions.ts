@@ -38,6 +38,7 @@ export interface HistoricalBoard {
     moveCount: number;
     moveRepCount: number;
     repetitionHistory: bigint[];
+    moveList: string[];
 }
 
 export interface DebugMoveOutput {
@@ -62,6 +63,7 @@ export enum EngineCommands {
     Ready = 12,
     UpdateThreadingInfo = 13,
     BotBestMoveThreaded = 14,
+    SetHistory = 15,
 }
 
 export enum EvalCommands {
