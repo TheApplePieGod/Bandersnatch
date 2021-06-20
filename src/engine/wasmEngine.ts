@@ -188,7 +188,18 @@ export class WasmEngine {
 
     best_move = () => {
         if (!this.initialized) return {} as EvalMove;
-        return this.wasm_engine.best_move();
+
+        const move_ptr = this.wasm_engine.best_move();
+        const move_data = new Int32Array(this.memory.buffer, move_ptr, 4);
+
+        let move: EvalMove = {
+            from: move_data[0],
+            to: move_data[1],
+            data: move_data[2],
+            score: move_data[3],
+        }
+        
+        return move;
     }
 
     time_taken_last_turn = () => {
@@ -209,6 +220,21 @@ export class WasmEngine {
     update_max_search_time = (time: number) => {
         if (!this.initialized) return;
         this.wasm_engine.update_max_search_time(time << 0);
+    }
+
+    set_thread_count = (thread_count: number) => {
+        if (!this.initialized) return;
+        this.wasm_engine.set_thread_count(thread_count);
+    }
+
+    thread_index = () => {
+        if (!this.initialized) return -1;
+        return this.wasm_engine.thread_index();
+    }
+    
+    set_thread_index = (thread_index: number) => {
+        if (!this.initialized) return;
+        this.wasm_engine.set_thread_index(thread_index);
     }
 
     create_historical_board = () => {
@@ -288,9 +314,9 @@ export class WasmEngine {
         return this.wasm_engine.calculate_all_possible_moves(depth);
     }
 
-    eval_bot_move = (depth: number) => {
+    eval_bot_move = (depth: number, threaded: boolean) => {
         if (!this.initialized) return;
-        return this.wasm_engine.eval_bot_move(depth);
+        return this.wasm_engine.eval_bot_move(depth, threaded);
     }
 
     eval_bot_move_iterative = () => {
@@ -462,12 +488,21 @@ ctx.addEventListener("message", (e) => {
                 require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
                     engine.memory = m.memory;
                     engine.initialize();
+                    engine.set_thread_count(e.data.threadCount);
+                    engine.set_thread_index(e.data.threadIndex);
 
                     ctx.postMessage({
                         command: e.data.command,
                     });
                 });
             });
+
+            break;
+        }
+        case EngineCommands.UpdateThreadingInfo:
+        {
+            engine.set_thread_count(e.data.threadCount);
+            engine.set_thread_index(e.data.threadIndex);
 
             break;
         }
@@ -547,15 +582,15 @@ ctx.addEventListener("message", (e) => {
             if (engine.historical_index != 0)
                 return;
 
-            if (!(engine.move_count() <= 5 && engine.book_move())) {
-                if (engine.eval_bot_move(6)) {
+            //if (!(engine.move_count() <= 5 && engine.book_move())) {
+                if (engine.eval_bot_move(6, false)) {
                     engine.push_history();
                     engine.move_list.push(engine.generate_move_string(engine.best_move().from, engine.best_move().to));
                 }
-            } else {
-                engine.set_depth_searched_last_turn(-1);
-                engine.push_history();
-            }
+            // } else {
+            //     engine.set_depth_searched_last_turn(-1);
+            //     engine.push_history();
+            // }
 
             ctx.postMessage({
                 command: e.data.command,
@@ -572,6 +607,24 @@ ctx.addEventListener("message", (e) => {
                 captured: engine.piece_captured_this_turn(),
                 castled: engine.castled_this_turn(),
                 draw: engine.check_for_draw()
+            });
+            break;
+        }
+        case EngineCommands.BotBestMoveThreaded:
+        {
+            if (engine.historical_index != 0)
+                return;
+
+            if (engine.eval_bot_move(6, true)) {
+                //engine.push_history();
+                //engine.move_list.push(engine.generate_move_string(engine.best_move().from, engine.best_move().to));
+            }
+
+            ctx.postMessage({
+                command: e.data.command,
+                bestMove: engine.best_move(),
+                timeTaken: engine.time_taken_last_turn(),
+                movesFound: engine.moves_found_this_turn()
             });
             break;
         }

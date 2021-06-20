@@ -3,8 +3,9 @@ import bigInt from 'big-integer';
 import React from 'react';
 import { Piece, getPieceName, getPieceNameShort, EngineCommands, Sounds, EvalMove, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation } from "../../definitions";
 import EngineWorker from "worker-loader!../../engine/engine";
-import WasmEngine from "worker-loader!../../engine/wasmEngine";
+import WasmEngineWorker from "worker-loader!../../engine/wasmEngine";
 import EvalWorker from "worker-loader!../../engine/evaluationWasm";
+import WasmEnginePoolWorker from "worker-loader!../../engine/wasmEnginePool";
 import { EvaluationBar } from './evaluationBar';
 import { InfoButton } from './infoButton';
 
@@ -44,9 +45,10 @@ export class Board extends React.Component<Props, State> {
     canvasRef: React.RefObject<HTMLCanvasElement>;
     images: Record<number, HTMLImageElement>;
     engineWorker = new EngineWorker();
-    wasmWorker = new WasmEngine();
+    wasmWorker = new WasmEngineWorker();
     evalWorker = new EvalWorker();
-
+    isWasm = true;
+    
     evalTimeout: any = 0;
     nextBoardToEval: HistoricalBoard | undefined = undefined;
 
@@ -84,8 +86,7 @@ export class Board extends React.Component<Props, State> {
     }
 
     engine = () => {
-        const isWasm = true;
-        if (isWasm)
+        if (this.isWasm)
             return this.wasmWorker;
         else
             return this.engineWorker;
@@ -403,6 +404,9 @@ export class Board extends React.Component<Props, State> {
         const { boardSize, localBoard, images, relativeMousePos } = this;
         const { cellSize } = this.state;
         const { lastMoveTo, lastMoveFrom, validMoves } = this.state.localHistory[this.state.historyIndex];
+
+        if (!localBoard)
+            return;
 
         let xPos = 0;
         let yPos = 0;

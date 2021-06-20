@@ -62,6 +62,9 @@ pub struct Engine {
     move_count: i32,
     move_rep_count: i32,
 
+    thread_count: i32,
+    thread_index: i32,
+
     board_deltas: Vec<BoardDelta>,
     piece_locations: Vec<Vec<usize>>,
     pinned_pieces: Vec<usize>,
@@ -142,6 +145,9 @@ impl Engine {
             en_passant_square: 0,
             move_count: 0,
             move_rep_count: 0,
+
+            thread_count: 1,
+            thread_index: 0,
 
             board_deltas: vec![],
             piece_locations: vec![
@@ -1550,6 +1556,20 @@ impl Engine {
                 return 0; // stalemate, draw
             }
         }
+
+        // split up the inital valid moves between threads
+        if offset == 0 && self.thread_count > 1 {
+            let mut moves_per_thread = valid_moves.len() as i32 / self.thread_count;
+            if self.thread_index == self.thread_count - 1 {
+                moves_per_thread += valid_moves.len() as i32 - (moves_per_thread * self.thread_count);
+                valid_moves = valid_moves[(valid_moves.len() - moves_per_thread as usize)..].to_vec();
+            } else {
+                let start_index = (moves_per_thread * self.thread_index) as usize;
+                let end_index = start_index + moves_per_thread as usize;
+                valid_moves = valid_moves[start_index..end_index].to_vec();
+            }
+        }
+
         self.predict_and_order_moves(
             &mut valid_moves,
             &attacked_squares
@@ -1745,7 +1765,7 @@ impl Engine {
         alpha
     }
 
-    pub fn eval_bot_move(&mut self, depth: i32) -> bool {
+    pub fn eval_bot_move(&mut self, depth: i32, threaded: bool) -> bool {
         if self.check_for_draw() {
             return false;
         }
@@ -1775,14 +1795,17 @@ impl Engine {
             self.best_move.to as usize
         );
         self.piece_captured_this_turn = self.board[self.best_move.to as usize] != Piece::Empty;
-        self.force_make_move(
-            self.best_move.from as usize,
-            &MoveInfo {
-                index: self.best_move.to as usize,
-                data: Piece::from_num(self.best_move.data)
-            },
-            true
-        );
+        
+        if !threaded {
+            self.force_make_move(
+                self.best_move.from as usize,
+                &MoveInfo {
+                    index: self.best_move.to as usize,
+                    data: Piece::from_num(self.best_move.data)
+                },
+                true
+            );
+        }
 
         let time_elapsed = now("") - start_time;
         self.time_taken_last_turn = time_elapsed; // ms
@@ -1962,8 +1985,8 @@ impl Engine {
         self.castled_this_turn
     }
 
-    pub fn best_move(&self) -> EvalMove {
-        self.best_move
+    pub fn best_move(&self) -> *const EvalMove {
+        &self.best_move
     }
 
     pub fn time_taken_last_turn(&self) -> u32 {
@@ -1988,5 +2011,17 @@ impl Engine {
 
     pub fn moves_found_this_turn_len(&self) -> usize {
         self.moves_found_this_turn.len()
+    }
+
+    pub fn set_thread_count(&mut self, thread_count: i32) {
+        self.thread_count = thread_count;
+    }
+
+    pub fn get_thread_index(&self) -> i32 {
+        self.thread_index
+    }
+    
+    pub fn set_thread_index(&mut self, thread_index: i32) {
+        self.thread_index = thread_index;
     }
 }

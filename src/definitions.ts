@@ -60,6 +60,8 @@ export enum EngineCommands {
     UndoMove = 10,
     UpdateMaxMoveTime = 11,
     Ready = 12,
+    UpdateThreadingInfo = 13,
+    BotBestMoveThreaded = 14,
 }
 
 export enum EvalCommands {
