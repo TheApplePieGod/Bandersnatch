@@ -775,7 +775,7 @@ impl Engine {
         // try and move kings together
         score += 14 - distance;
 
-        (score as f32  * 20.0 * endgame_weight) as i32
+        (score as f32 * 20.0 * endgame_weight) as i32
     }
 
     pub fn evaluate(&self) -> i32 {
@@ -1491,9 +1491,10 @@ impl Engine {
 
             moves[i].score = score;
 
+            // sorting
             let mut index = i;
             let current_elem = moves[index];
-            while index > 0 && current_elem.score > moves[index - 1].score {
+            while index > 0 && (current_elem.score > moves[index - 1].score || (current_elem.score == moves[index - 1].score && current_elem.from > moves[index - 1].from)) {
                 moves[index] = moves[index - 1];
                 index -= 1;
             }

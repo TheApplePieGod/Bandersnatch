@@ -731,8 +731,7 @@ export class Engine {
             if (deltas[i].piece != Piece.Empty) { // ignore any empty piece entries
                 if (deltas[i].index == -1) { // if the original index is -1, it means the piece was created from promotion, so remove the piece
                     this.removePiece(deltas[i].piece, deltas[i].target);
-                }
-                else if (this.board[deltas[i].index] != Piece.Empty) { // was captured so add the piece back to register
+                } else if (this.board[deltas[i].index] != Piece.Empty) { // was captured so add the piece back to register
                     this.pieceLocations[deltas[i].piece].push(deltas[i].index);
                 } else if (deltas[i].target != -1) { // otherwise just move it back
                     const foundIndex = this.pieceLocations[deltas[i].piece].indexOf(deltas[i].target);
@@ -1087,18 +1086,19 @@ export class Engine {
 
             moves[i].score = score;
 
-            // let index = i;
-            // let current_elem = moves[index];
-            // while (index > 0 && current_elem.score > moves[index - 1].score) {
-            //     moves[index] = moves[index - 1];
-            //     index -= 1;
-            // }
-            // moves[index] = current_elem;
+            // sorting
+            let index = i;
+            let currentElem = moves[index];
+            while (index > 0 && (currentElem.score > moves[index - 1].score || (currentElem.score == moves[index - 1].score && currentElem.from > moves[index - 1].from))) {
+                moves[index] = moves[index - 1];
+                index -= 1;
+            }
+            moves[index] = currentElem;
         }
 
-        moves.sort((a, b) => {
-            return b.score - a.score;
-        });
+        // moves.sort((a, b) => {
+        //     return b.score - a.score;
+        // });
     }
 
     findBestMoveWithIterativeDeepening = () => {

@@ -9,8 +9,10 @@ import { InfoButton } from './infoButton';
 import { SimpleDialog } from './simpleDialog';
 import SettingsIcon from '@material-ui/icons/Settings';
 import * as theme from '../theme';
+import InfoIcon from '@material-ui/icons/Info';
+import { RouterProps, withRouter } from 'react-router-dom';
 
-interface Props {
+interface Props extends RouterProps {
 
 }
 
@@ -49,7 +51,7 @@ interface History {
     checkmate: boolean;
 }
 
-export class Board extends React.Component<Props, State> {
+class _Board extends React.Component<Props, State> {
     canvasRef: React.RefObject<HTMLCanvasElement>;
     images: Record<number, HTMLImageElement>;
     engineWorker = new EngineWorker();
@@ -789,9 +791,7 @@ export class Board extends React.Component<Props, State> {
             <div style={{ display: "flex", flexDirection: "column", marginRight: "20px", marginBottom: "50px", minWidth: "300px", maxWidth: "300px" }}>
                 <div style={{ display: "flex", alignItems: "center" }}>
                     <Typography style={{ marginRight: "0.5rem" }} variant="h4" color="textSecondary">Bandersnatch</Typography>
-                    <InfoButton title="Welcome">
-                        Start dragging pieces to get started. Explore all the options and feel free to view the brief description of each. The bar underneath the board is the bot's evaluation of the current position (positive being white advantage and negative being black advantage). The evaluation takes about 3-5 seconds to update each time a move is made
-                    </InfoButton>
+                    <IconButton style={{ marginLeft: "-0.75rem" }} onClick={() => this.props.history.push("/about")}><InfoIcon style={{ color: theme.PALETTE_WHITE }} /></IconButton>
                     {this.settingsTab()}
                 </div>
                 <hr style={{ width: "100%" }}/>
@@ -801,44 +801,37 @@ export class Board extends React.Component<Props, State> {
                     </InfoButton>
                     <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.botMove}>Make a bot move</Button>
                 </div>
-                <br />
                 <div>
                     <InfoButton title="Undo Last Move">
                         When clicked, the last move that was made will be undone as if it never happened
                     </InfoButton>
                     <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1 || localHistory.length == 1} variant="contained" onClick={this.undoLastMove}>Undo last move</Button>
                 </div>
-                <br />
                 <div>
                     <InfoButton title="History Go Back">
                         When clicked or after pressing the left arrow key, the board will go back in the move history. Many actions are unavailable when viewing historical moves
                     </InfoButton>
                     <Button disabled={this.state.waitingForMove || historyIndex == 0} variant="contained" onClick={this.historyGoBack}>History go back</Button>
                 </div>
-                <br />
                 <div>
                     <InfoButton title="History Go Forwards">
                         When clicked or after pressing the right arrow key, the board will go forwards in the move history. Many actions are unavailable when viewing historical moves
                     </InfoButton>
                     <Button disabled={this.state.waitingForMove || historyIndex == localHistory.length - 1} variant="contained" onClick={this.historyGoForward}>History go forward</Button>
                 </div>
-                <br />
                 <div>
                     <InfoButton title="Reset Board">
                         This will reset the board back to the original position and clear all move history
                     </InfoButton>
                     <Button disabled={this.state.waitingForMove} variant="contained" onClick={this.resetGame}>Reset Board</Button>
                 </div>
-                <br />
                 <div>
                     <InfoButton title="Print Piece Locations">
                         This is a debugging tool which will print all of the board indexes of each piece into the console
                     </InfoButton>
                     <Button variant="contained" onClick={this.printPieceLocations}>Print Piece Locations</Button>
                 </div>
-                <br />
                 <hr style={{ width: "100%" }}/>
-                <br />
                 <Typography style={{ lineHeight: "30px" }} color="textPrimary"><b>Last move color: </b>{`${whiteTurn ? "Black" : "White"}`}</Typography>
                 <Typography style={{ lineHeight: "30px" }} color="textPrimary"><b>Last move time: </b>{`${Math.floor(moveTime)}ms`}</Typography>
                 <Typography style={{ lineHeight: "30px" }} color="textPrimary"><b>Last move depth: </b>{`${searchDepth < 0 ? "Book move" : searchDepth + " ply"}`}</Typography>
@@ -884,3 +877,5 @@ export class Board extends React.Component<Props, State> {
         );
     }
 }
+
+export const Board = withRouter((props) => <_Board {...props} />);
