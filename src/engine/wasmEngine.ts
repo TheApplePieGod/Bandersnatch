@@ -4,8 +4,6 @@ import { openings } from "./openings";
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
 
-console.log("wasm worker init");
-
 (self as any).post_eval_message = (s: string, evaluation: number) => {
     ctx.postMessage({
         command: EvalCommands.ReceiveCurrentEval,
@@ -507,7 +505,6 @@ ctx.addEventListener("message", (e) => {
     switch (e.data.command) {
         case EngineCommands.Ready:
         {
-            console.log("wasm ready recieved");
             // Load the web assembly (workaround because regular importing did not seem to work right with webpack 5)
             //import('bandersnatch-wasm');
 

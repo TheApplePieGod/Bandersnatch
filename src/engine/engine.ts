@@ -5,8 +5,6 @@ import { openings } from "./openings";
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
 
-console.log("js worker init");
-
 interface BoardDelta { // set values to -1 to ignore
     index: number;
     piece: number;
@@ -1552,7 +1550,6 @@ const engine = new Engine();
 ctx.addEventListener("message", (e) => {
     switch (e.data.command) {
         case EngineCommands.Ready:
-            console.log("js ready recieved");
             ctx.postMessage({
                 command: e.data.command,
             });
