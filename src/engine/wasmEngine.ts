@@ -518,6 +518,7 @@ ctx.addEventListener("message", (e) => {
                     if (w == undefined)
                         return;
 
+                    console.log(w);
                     loading = false;
                     require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
                         engine.memory = m.memory;
