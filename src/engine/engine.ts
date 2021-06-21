@@ -1550,6 +1550,7 @@ const engine = new Engine();
 ctx.addEventListener("message", (e) => {
     switch (e.data.command) {
         case EngineCommands.Ready:
+            console.log("js ready recieved");
             ctx.postMessage({
                 command: e.data.command,
             });

@@ -15,6 +15,8 @@ const engine = new WasmEngine();
 require('bandersnatch-wasm').then((w: any) => { 
     engine.wasm = w;
 
+    console.log("evaluation", w)
+
     require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
         engine.memory = m.memory;
         engine.initialize();
