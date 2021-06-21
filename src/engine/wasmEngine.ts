@@ -3,8 +3,6 @@ import { openings } from "./openings";
 
 import('bandersnatch-wasm');
 
-console.log("wasm worker init");
-
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
 

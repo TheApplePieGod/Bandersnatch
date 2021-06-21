@@ -3,7 +3,7 @@ import React from 'react';
 import { Piece, getPieceName, getPieceNameShort, EngineCommands, Sounds, EvalMove, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation } from "../../definitions";
 import EngineWorker from "worker-loader!../../engine/engine";
 import WasmEngineWorker from "worker-loader!../../engine/wasmEngine";
-import EvalWorker from "worker-loader!../../engine/evaluationWasm";
+import EvalWorker from "worker-loader!../../engine/evaluation";
 import { EvaluationBar } from './evaluationBar';
 import { InfoButton } from './infoButton';
 import { SimpleDialog } from './simpleDialog';
@@ -91,7 +91,7 @@ class _Board extends React.Component<Props, State> {
             botMaxMoveTime: 3,
             settingsTabOpen: false,
             statusDialogText: "",
-            currentEngine: 1,
+            currentEngine: 0,
             makeBookMoves: true,
         };
 
