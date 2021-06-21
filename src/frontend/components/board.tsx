@@ -522,8 +522,7 @@ class _Board extends React.Component<Props, State> {
             this.images[key] = img;
         }
 
-        console.log("sending ready signal");
-        setTimeout(() => this.engine().postMessage({ command: EngineCommands.Ready }), 200);
+        setTimeout(() => this.engine().postMessage({ command: EngineCommands.Ready }), 2000);
     }
 
     startRendering = () => {
