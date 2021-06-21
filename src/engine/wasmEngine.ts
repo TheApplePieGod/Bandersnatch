@@ -3,6 +3,8 @@ import { openings } from "./openings";
 
 import('bandersnatch-wasm');
 
+console.log("wasm worker init");
+
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
 
@@ -520,7 +522,6 @@ ctx.addEventListener("message", (e) => {
                     if (w == undefined || !('Engine' in w))
                         return;
 
-                    console.log(w);
                     loading = false;
                     require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
                         engine.memory = m.memory;
