@@ -12,6 +12,7 @@ const useStyles = makeStyles({
 
 interface _props {
     title: string;
+    dark?: boolean;
 }
 
 export const InfoButton: React.FunctionComponent<_props> = (props) => {
@@ -19,7 +20,7 @@ export const InfoButton: React.FunctionComponent<_props> = (props) => {
 
     return (
         <React.Fragment>
-            <IconButton onClick={() => setOpen(true)}><InfoIcon /></IconButton>
+            <IconButton style={{ marginLeft: "-0.75rem" }} onClick={() => setOpen(true)}><InfoIcon style={{ color: props.dark ? theme.PALETTE_BLACK : theme.PALETTE_WHITE }} /></IconButton>
             <SimpleDialog open={open} title={props.title} onClose={() => setOpen(false)} style={{ color: theme.PALETTE_BLACK }}>
                 <Typography color="textSecondary">{props.children}</Typography>
             </SimpleDialog>

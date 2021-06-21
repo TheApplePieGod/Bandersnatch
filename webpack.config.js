@@ -12,7 +12,7 @@ var config = {
       rules: [
       {
         test: /\.ts(x?)$/,
-        include: /src/,
+        include: [/src/, /bandersnatch-wasm/],
         loader: "awesome-typescript-loader"
       },
       {
@@ -26,6 +26,7 @@ var config = {
       },
       {
         test: /\.(png|jpg|jpeg|gif|svg|ttf|otf|woff|woff2|eot)$/,
+        exclude: /node_modules/,
         loader: 'url-loader'
       }
     ]
@@ -47,6 +48,9 @@ var config = {
         template: './html/index.html'
       })
     ],
+    experiments: {
+        asyncWebAssembly: true
+    }
   };
 
 module.exports = config;

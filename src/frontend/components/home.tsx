@@ -1,8 +1,7 @@
-import { Typography, useTheme } from '@material-ui/core';
+import { Typography, useTheme, Button } from '@material-ui/core';
 import React from 'react';
 import * as theme from '../theme';
 import { makeStyles } from "@material-ui/core";
-import { useWindowDimensions } from './useWindowDimensions';
 import { Board } from './board';
 
 const useStyles = makeStyles(theme => ({
@@ -12,10 +11,6 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export const Home = () => {
-    const classes = useStyles();
-    const theme = useTheme();
-    const { height, width } = useWindowDimensions();
-
     return (
         <div>
             <Board />

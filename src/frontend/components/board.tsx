@@ -1,13 +1,18 @@
-import { Button, FormControlLabel, Checkbox, Typography, Paper, Slider } from '@material-ui/core';
-import bigInt from 'big-integer';
+import { Button, FormControlLabel, Checkbox, Typography, Paper, Slider, IconButton, FormControl, Select, MenuItem, InputLabel } from '@material-ui/core';
 import React from 'react';
 import { Piece, getPieceName, getPieceNameShort, EngineCommands, Sounds, EvalMove, EvalCommands, HistoricalBoard, DebugMoveOutput, notationToIndex, indexToNotation } from "../../definitions";
 import EngineWorker from "worker-loader!../../engine/engine";
-import EvalWorker from "worker-loader!../../engine/evaluation";
+import WasmEngineWorker from "worker-loader!../../engine/wasmEngine";
+import EvalWorker from "worker-loader!../../engine/evaluationWasm";
 import { EvaluationBar } from './evaluationBar';
 import { InfoButton } from './infoButton';
+import { SimpleDialog } from './simpleDialog';
+import SettingsIcon from '@material-ui/icons/Settings';
+import * as theme from '../theme';
+import InfoIcon from '@material-ui/icons/Info';
+import { RouterProps, withRouter } from 'react-router-dom';
 
-interface Props {
+interface Props extends RouterProps {
 
 }
 
@@ -25,6 +30,10 @@ interface State {
     localHistory: History[];
     historyIndex: number;
     botMaxMoveTime: number;
+    settingsTabOpen: boolean;
+    statusDialogText: string;
+    currentEngine: number;
+    makeBookMoves: boolean;
 }
 
 interface History {
@@ -37,17 +46,22 @@ interface History {
     searchDepth: number;
     opening: string;
     whiteTurn: boolean;
+    moveEngine: string;
+    draw: boolean;
+    checkmate: boolean;
 }
 
-export class Board extends React.Component<Props, State> {
+class _Board extends React.Component<Props, State> {
     canvasRef: React.RefObject<HTMLCanvasElement>;
     images: Record<number, HTMLImageElement>;
     engineWorker = new EngineWorker();
+    wasmWorker = new WasmEngineWorker();
     evalWorker = new EvalWorker();
-
+    
     evalTimeout: any = 0;
     nextBoardToEval: HistoricalBoard | undefined = undefined;
 
+    localHistoricalBoards: HistoricalBoard[] = [];
     localBoard: number[];
     animationFrameId = 0;
     draggingIndex = -1;
@@ -74,11 +88,145 @@ export class Board extends React.Component<Props, State> {
             currentEval: 0,
             localHistory: [],
             historyIndex: 0,
-            botMaxMoveTime: 3
+            botMaxMoveTime: 3,
+            settingsTabOpen: false,
+            statusDialogText: "",
+            currentEngine: 1,
+            makeBookMoves: true,
         };
 
+        this.wasmWorker.onmessage = this.handleMessage;
         this.engineWorker.onmessage = this.handleMessage;
         this.evalWorker.onmessage = this.handleEvalMessage;
+    }
+
+    switchEngine = (e: React.ChangeEvent<{ value: unknown }>) => {
+        this.setState({ currentEngine: e.target.value as number }, () => {
+            this.engine().postMessage({ command: EngineCommands.SetHistory, boards: this.localHistoricalBoards, index: this.state.historyIndex - this.state.localHistory.length + 1 });
+        });
+    }
+
+    statusDialog = () => {
+        return (
+            <SimpleDialog
+                open={this.state.statusDialogText != ""}
+                onClose={() => this.setState({ statusDialogText: "" })}
+            >
+                <Typography color="textSecondary" variant="h3">{this.state.statusDialogText}</Typography>
+            </SimpleDialog>
+        );
+    }
+
+    settingsTab = () => {
+        return (
+            <React.Fragment>
+                <SimpleDialog
+                    open={this.state.settingsTabOpen}
+                    onClose={() => this.setState({ settingsTabOpen: false })}
+                >
+                    <div>
+                        <InfoButton title="Show Grid Numbers" dark>
+                            Show the programmatic indexes 0-63 of each square on the board
+                        </InfoButton>
+                        <FormControlLabel
+                            control={<Checkbox checked={this.state.showNumbers} onChange={() => this.setState({ showNumbers: !this.state.showNumbers })} name="asd" />}
+                            label={<Typography color="textSecondary">Show Grid Numbers</Typography>}
+                        />
+                    </div>
+                    <div>
+                        <InfoButton title="Show Legal Moves" dark>
+                            Highlight the legal moves of each piece in yellow when the piece is picked up
+                        </InfoButton>
+                        <FormControlLabel
+                            control={<Checkbox checked={this.state.showValidMoves} onChange={() => this.setState({ showValidMoves: !this.state.showValidMoves })} />}
+                            label={<Typography color="textSecondary">Show Legal Moves</Typography>}
+                        />
+                    </div>
+                    <div>
+                        <InfoButton title="Make Book Moves" dark>
+                            Whether or not the AI should make predetermined opening moves at the start of the game
+                        </InfoButton>
+                        <FormControlLabel
+                            control={<Checkbox checked={this.state.makeBookMoves} onChange={() => this.setState({ makeBookMoves: !this.state.makeBookMoves })} />}
+                            label={<Typography color="textSecondary">Make Book Moves</Typography>}
+                        />
+                    </div>
+                    <div>
+                        <InfoButton title="Bot Autoplay" dark>
+                            When enabled, after the 'Bot Move' button is clicked, the bot will continue to play against itself
+                        </InfoButton>
+                        <FormControlLabel
+                            control={<Checkbox checked={this.state.botMoveAutoplay} onChange={() => this.setState({ botMoveAutoplay: !this.state.botMoveAutoplay })} />}
+                            label={<Typography color="textSecondary">Bot Autoplay</Typography>}
+                        />
+                    </div>
+                    <div>
+                        <InfoButton title="Play Against Bot" dark>
+                            When enabled, the bot will respond with a move after every human move is made
+                        </InfoButton>
+                        <FormControlLabel
+                            control={<Checkbox checked={this.state.playAgainstBot} onChange={() => this.setState({ playAgainstBot: !this.state.playAgainstBot })} />}
+                            label={<Typography color="textSecondary">Play Against Bot</Typography>}
+                        />
+                    </div>
+                    <div>
+                        <InfoButton title="Bot Iterative Deepening" dark>
+                            This setting is recommended to be left on. When enabled, instead of forcing the bot to to search x moves ahead, the bot is given a set amount of time, determined by the slider, to search as far ahead as it can and make its move. If disabled, the bot will search ahead 6 moves, no matter how long it takes.
+                        </InfoButton>
+                        <FormControlLabel
+                            control={<Checkbox checked={this.state.botIterative} onChange={() => this.setState({ botIterative: !this.state.botIterative })} />}
+                            label={<Typography color="textSecondary">Bot Iterative Deepening</Typography>}
+                        />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                        <InfoButton title="AI Engine" dark>
+                            Choose which engine to run the AI with. To learn more about the individual engines, read the 'about' section of the site. WebAssembly is the recommended engine to use, and the engine can be changed at any point during a game.
+                        </InfoButton>
+                        <Typography color="textSecondary">Engine:</Typography>
+                        <FormControl>
+                            <Select
+                                value={this.state.currentEngine}
+                                onChange={this.switchEngine}
+                                style={{ color: theme.PALETTE_LIGHT_BLACK, borderColor: theme.PALETTE_BLACK, marginLeft: "0.5rem" }}
+                            >
+                                <MenuItem style={{ color: theme.PALETTE_LIGHT_BLACK }} value={0}>Native JS</MenuItem>
+                                <MenuItem style={{ color: theme.PALETTE_LIGHT_BLACK }} value={1}>WebAssembly</MenuItem>
+                            </Select>
+                        </FormControl>
+                    </div>
+                    <div>
+                        <InfoButton title="Bot Max Move Time" dark>
+                            The time in seconds allotted for the bot to make its move each turn. 3 seconds is the recommended amount. The less time it has to search, the more likely it is to make a worse move.
+                        </InfoButton>
+                        <Typography style={{ lineHeight: "30px", display: "inline-block" }} color="textSecondary">{`Max bot move time (s)`}</Typography>
+                    </div>
+                    <Slider
+                        value={this.state.botMaxMoveTime}
+                        disabled={this.state.waitingForMove}
+                        onChange={this.updateBotMaxMoveTime}
+                        valueLabelDisplay="auto"
+                        step={0.5}
+                        marks
+                        min={0.5}
+                        max={10}
+                        style={{ marginLeft: "5px", marginTop: "-10px" }}
+                    />
+                </SimpleDialog>
+                <IconButton
+                    onClick={() => this.setState({ settingsTabOpen: true })}
+                    style={{ marginLeft: "-0.75rem", color: theme.PALETTE_WHITE }}
+                >
+                    <SettingsIcon />
+                </IconButton>
+            </React.Fragment>
+        );
+    }
+
+    engine = () => {
+        if (this.state.currentEngine == 1)
+            return this.wasmWorker;
+        else
+            return this.engineWorker;
     }
 
     boardScaleFactor = (width: number) => {
@@ -149,9 +297,15 @@ export class Board extends React.Component<Props, State> {
 
     handleMessage = (e: MessageEvent) => {
         switch (e.data.command) {
+            case EngineCommands.Ready:
+                this.engine().postMessage({ command: EngineCommands.RetrieveBoard });
+                break;
             case EngineCommands.RetrieveBoard:
-                this.localBoard = e.data.board;
+                this.localBoard = e.data.board.board;
+                this.nextBoardToEval = e.data.board;
+                this.localHistoricalBoards.push(e.data.board);
                 this.setState({
+                    historyIndex: 0,
                     localHistory: [{
                         lastMoveFrom: -1,
                         lastMoveTo: -1,
@@ -161,7 +315,10 @@ export class Board extends React.Component<Props, State> {
                         opening: "",
                         moveTime: 0,
                         searchDepth: 0,
-                        whiteTurn: true
+                        whiteTurn: true,
+                        moveEngine: "N/A",
+                        draw: false,
+                        checkmate: false
                     }]
                 }, () => {
                     if (!this.rendering)
@@ -177,14 +334,19 @@ export class Board extends React.Component<Props, State> {
                     if (!e.data.draw)
                         validMoves = e.data.validMoves;
 
-                    const checkmate = validMoves.length == 0;
+                    const checkmate = e.data.validMoves.length == 0;
 
                     if (!checkmate && !e.data.draw && this.state.playAgainstBot)
                         this.botMove();
 
                     let soundToPlay = 0;
-                    if (checkmate || e.data.draw) {
+                    let status = "";
+                    if (checkmate) {
                         soundToPlay = Sounds.GameOver;
+                        status = "Checkmate";
+                    } else if (e.data.draw) {
+                        soundToPlay = Sounds.GameOver;
+                        status = "Draw";
                     } else {
                         if (e.data.inCheck)
                             soundToPlay = Sounds.Checked;
@@ -200,7 +362,9 @@ export class Board extends React.Component<Props, State> {
                     }
                     this.playSound(soundToPlay);
 
+                    this.localHistoricalBoards.push(e.data.board);
                     this.setState({
+                        statusDialogText: status,
                         historyIndex: this.state.historyIndex + 1,
                         localHistory: this.state.localHistory.concat([{
                             lastMoveFrom: e.data.from,
@@ -211,7 +375,10 @@ export class Board extends React.Component<Props, State> {
                             moveTime: 0,
                             opening: "",
                             searchDepth: 0,
-                            whiteTurn: e.data.whiteTurn
+                            whiteTurn: e.data.whiteTurn,
+                            moveEngine: "Human",
+                            draw: e.data.draw,
+                            checkmate: checkmate
                         }])
                     });
                 } else {
@@ -237,6 +404,7 @@ export class Board extends React.Component<Props, State> {
                 if (e.data.command == EngineCommands.UndoMove) {
                     this.setState({ localHistory: this.state.localHistory.slice(0, -1) });
                     this.nextBoardToEval = e.data.board;
+                    this.localHistoricalBoards.pop();
                 }
 
                 break;
@@ -249,17 +417,22 @@ export class Board extends React.Component<Props, State> {
                     if (!e.data.draw)
                         validMoves = e.data.validMoves;
 
-                    const checkmate = validMoves.length == 0;
+                    const checkmate = e.data.validMoves.length == 0;
     
                     if (!checkmate && !e.data.draw && this.state.botMoveAutoplay) {
-                        this.engineWorker.postMessage({ command: e.data.command });
+                        this.engine().postMessage({ command: e.data.command, bookMoves: this.state.makeBookMoves });
                     } else {
                         this.setState({ waitingForMove: false });
                     }
                     
                     let soundToPlay = 0;
-                    if (checkmate || e.data.draw) {
+                    let status = "";
+                    if (checkmate) {
                         soundToPlay = Sounds.GameOver;
+                        status = "Checkmate";
+                    } else if (e.data.draw) {
+                        soundToPlay = Sounds.GameOver;
+                        status = "Draw"
                     } else {
                         if (e.data.inCheck)
                             soundToPlay = Sounds.Checked;
@@ -275,7 +448,9 @@ export class Board extends React.Component<Props, State> {
                     }
                     this.playSound(soundToPlay);
 
+                    this.localHistoricalBoards.push(e.data.board);
                     this.setState({
+                        statusDialogText: status,
                         historyIndex: this.state.historyIndex + 1,
                         localHistory: this.state.localHistory.concat([{
                             lastMoveFrom: e.data.from,
@@ -286,7 +461,10 @@ export class Board extends React.Component<Props, State> {
                             moveTime: e.data.timeTaken,
                             searchDepth: e.data.depthSearched,
                             opening: e.data.opening,
-                            whiteTurn: e.data.whiteTurn
+                            whiteTurn: e.data.whiteTurn,
+                            moveEngine: this.state.currentEngine == 1 ? "WebAssembly" : "Native JS",
+                            draw: e.data.draw,
+                            checkmate: checkmate
                         }])
                     });
                 }
@@ -311,6 +489,12 @@ export class Board extends React.Component<Props, State> {
                     finalString += line + '\n';
                 }
                 console.log(finalString);
+                break;
+            case EngineCommands.ResetGame:
+            {
+                this.engine().postMessage({ command: EngineCommands.RetrieveBoard });
+                break;
+            }
             default:
                 break;
         }
@@ -338,7 +522,7 @@ export class Board extends React.Component<Props, State> {
             this.images[key] = img;
         }
 
-        setTimeout(() => this.engineWorker.postMessage({ command: EngineCommands.RetrieveBoard }), 200);
+        setTimeout(() => this.engine().postMessage({ command: EngineCommands.Ready }), 200);
     }
 
     startRendering = () => {
@@ -389,7 +573,14 @@ export class Board extends React.Component<Props, State> {
     drawBoard = (ctx: CanvasRenderingContext2D) => {
         const { boardSize, localBoard, images, relativeMousePos } = this;
         const { cellSize } = this.state;
-        const { lastMoveTo, lastMoveFrom, validMoves } = this.state.localHistory[this.state.historyIndex];
+        const { lastMoveTo, lastMoveFrom, validMoves, draw, checkmate } = this.state.localHistory[this.state.historyIndex];
+
+        if (!localBoard)
+            return;
+
+        const lightSqureColor = '#ded6c1';
+        const darkSquareColor = '#403e38';
+        const gameOverColor = '#77736880';
 
         let xPos = 0;
         let yPos = 0;
@@ -398,7 +589,7 @@ export class Board extends React.Component<Props, State> {
                 const boardIndex = (y * boardSize) + x;
                 const piece = localBoard[boardIndex];
 
-                ctx.fillStyle = (x + y) % 2 == 1 ? '#403e38' : '#ded6c1';
+                ctx.fillStyle = (x + y) % 2 == 1 ? darkSquareColor : lightSqureColor;
                 ctx.fillRect(xPos, yPos, cellSize, cellSize);
 
                 if (boardIndex == this.draggingIndex) {
@@ -421,6 +612,12 @@ export class Board extends React.Component<Props, State> {
                     if (piece in images && images[piece].complete)
                         if (boardIndex != this.draggingIndex)
                             ctx.drawImage(images[piece], xPos, yPos, cellSize, cellSize);
+                }
+
+                // draw/checkmate has a greyed out board
+                if (draw || checkmate) {
+                    ctx.fillStyle = gameOverColor;
+                    ctx.fillRect(xPos, yPos, cellSize, cellSize);
                 }
 
                 const fontSize = cellSize * 0.25;
@@ -509,7 +706,7 @@ export class Board extends React.Component<Props, State> {
             if (!this.state.waitingForMove) {
                 const boardIndex = this.getMouseBoardIndex();
                 if (boardIndex != this.draggingIndex)
-                    this.engineWorker.postMessage({ command: EngineCommands.AttemptMove, fromIndex: this.draggingIndex, toIndex: boardIndex });
+                    this.engine().postMessage({ command: EngineCommands.AttemptMove, fromIndex: this.draggingIndex, toIndex: boardIndex });
                 else
                     this.draggingIndex = -1;
             } else {
@@ -521,13 +718,13 @@ export class Board extends React.Component<Props, State> {
 
     historyGoForward = () => {
         if (!this.state.waitingForMove) {
-            this.engineWorker.postMessage({ command: EngineCommands.HistoryGoForward });
+            this.engine().postMessage({ command: EngineCommands.HistoryGoForward });
         }
     }
 
     historyGoBack = () => {
         if (!this.state.waitingForMove) {
-            this.engineWorker.postMessage({ command: EngineCommands.HistoryGoBack });
+            this.engine().postMessage({ command: EngineCommands.HistoryGoBack });
         }
     }
 
@@ -539,7 +736,9 @@ export class Board extends React.Component<Props, State> {
     }
 
     undoLastMove = () => {
-        this.engineWorker.postMessage({ command: EngineCommands.UndoMove });
+        if (!this.state.waitingForMove) {
+            this.engine().postMessage({ command: EngineCommands.UndoMove });
+        }
     }
 
     getAllMoves = () => {
@@ -547,13 +746,23 @@ export class Board extends React.Component<Props, State> {
     }
 
     printPieceLocations = () => {
-        this.engineWorker.postMessage({ command: EngineCommands.RetrievePieceLocations });
+        this.engine().postMessage({ command: EngineCommands.RetrievePieceLocations });
+    }
+
+    resetGame = () => {
+        this.localHistoricalBoards = [];
+        this.engineWorker.postMessage({ command: EngineCommands.ResetGame, retrieve: true });
+        this.wasmWorker.postMessage({ command: EngineCommands.ResetGame, retrieve: false });
+        this.evalWorker.postMessage({ command: EngineCommands.ResetGame, retrieve: false });
     }
 
     botMove = () => {
         if (!this.state.waitingForMove) {
             this.setState({ waitingForMove: true });
-            this.engineWorker.postMessage({ command: this.state.botIterative ? EngineCommands.BotBestMoveIterative : EngineCommands.BotBestMove });
+            this.engine().postMessage({
+                command: this.state.botIterative ? EngineCommands.BotBestMoveIterative : EngineCommands.BotBestMove,
+                bookMoves: this.state.makeBookMoves 
+            });
         }
     }
 
@@ -567,7 +776,7 @@ export class Board extends React.Component<Props, State> {
     updateBotMaxMoveTime = (e: React.ChangeEvent<{}>, value: number | number[]) => {
         if (!this.state.waitingForMove) {
             this.setState({ botMaxMoveTime: value as number });
-            this.engineWorker.postMessage({ command: EngineCommands.UpdateMaxMoveTime, time: (value as number) * 1000 });
+            this.engine().postMessage({ command: EngineCommands.UpdateMaxMoveTime, time: (value as number) * 1000 });
         }
     }
 
@@ -576,127 +785,70 @@ export class Board extends React.Component<Props, State> {
             return <Typography color="textPrimary">Loading...</Typography>
 
         const { localHistory, historyIndex } = this.state;
-        const { whiteTurn, moveTime, searchDepth, movesConsidered, opening } = localHistory[historyIndex];
+        const { whiteTurn, moveTime, searchDepth, movesConsidered, opening, moveEngine } = localHistory[historyIndex];
         return (
         <div style={{ display: "flex", flexDirection: this.state.width < 900 ? "column-reverse" : "row" }}>
             <div style={{ display: "flex", flexDirection: "column", marginRight: "20px", marginBottom: "50px", minWidth: "300px", maxWidth: "300px" }}>
                 <div style={{ display: "flex", alignItems: "center" }}>
-                    <Typography variant="h4" color="textSecondary">Bandersnatch</Typography>
-                    <InfoButton title="Welcome">
-                        Start dragging pieces to get started. Explore all the options and feel free to view the brief description of each. The bar underneath the board is the bot's evaluation of the current position (positive being white advantage and negative being black advantage). The evaluation takes about 3-5 seconds to update each time a move is made
-                    </InfoButton>
+                    <Typography style={{ marginRight: "0.5rem" }} variant="h4" color="textSecondary">Bandersnatch</Typography>
+                    <IconButton style={{ marginLeft: "-0.75rem" }} onClick={() => this.props.history.push("/about")}><InfoIcon style={{ color: theme.PALETTE_WHITE }} /></IconButton>
+                    {this.settingsTab()}
                 </div>
+                <hr style={{ width: "100%" }}/>
                 <div>
-                    <FormControlLabel
-                        control={<Checkbox checked={this.state.showNumbers} onChange={() => this.setState({ showNumbers: !this.state.showNumbers })} name="asd" />}
-                        label={<Typography color="textPrimary">Show Grid Numbers</Typography>}
-                    />
-                    <InfoButton title="Show Grid Numbers">
-                        Show the programmatic indexes 0-63 of each square on the board
-                    </InfoButton>
-                </div>
-                <div>
-                    <FormControlLabel
-                        control={<Checkbox checked={this.state.showValidMoves} onChange={() => this.setState({ showValidMoves: !this.state.showValidMoves })} />}
-                        label={<Typography color="textPrimary">Show Legal Moves</Typography>}
-                    />
-                    <InfoButton title="Show Legal Moves">
-                        Highlight the legal moves of each piece in yellow when the piece is picked up
-                    </InfoButton>
-                </div>
-                <div>
-                    <FormControlLabel
-                        control={<Checkbox checked={this.state.botMoveAutoplay} onChange={() => this.setState({ botMoveAutoplay: !this.state.botMoveAutoplay })} />}
-                        label={<Typography color="textPrimary">Bot Autoplay</Typography>}
-                    />
-                    <InfoButton title="Bot Autoplay">
-                        When enabled, after the 'Bot Move' button is clicked, the bot will continue to play against itself
-                    </InfoButton>
-                </div>
-                <div>
-                    <FormControlLabel
-                        control={<Checkbox checked={this.state.playAgainstBot} onChange={() => this.setState({ playAgainstBot: !this.state.playAgainstBot })} />}
-                        label={<Typography color="textPrimary">Play Against Bot</Typography>}
-                    />
-                    <InfoButton title="Play Against Bot">
-                        When enabled, the bot will respond with a move after every human move is made
-                    </InfoButton>
-                </div>
-                <div>
-                    <FormControlLabel
-                        control={<Checkbox checked={this.state.botIterative} onChange={() => this.setState({ botIterative: !this.state.botIterative })} />}
-                        label={<Typography color="textPrimary">Bot Iterative Deepening</Typography>}
-                    />
-                    <InfoButton title="Bot Iterative Deepening">
-                        This setting is recommended to be left on. When enabled, instead of forcing the bot to to search x moves ahead, the bot is given a set amount of time, determined by the slider, to search as far ahead as it can and make its move. If disabled, the bot will search ahead 6 moves, no matter how long it takes.
-                    </InfoButton>
-                </div>
-                <div>
-                    <Typography style={{ lineHeight: "30px", display: "inline-block" }} color="textPrimary">{`Max bot move time (s)`}</Typography>
-                    <InfoButton title="Bot Max Move Time">
-                        The time in seconds allotted for the bot to make its move each turn. 3 seconds is the recommended amount. The less time it has to search, the more likely it is to make a worse move.
-                    </InfoButton>
-                </div>
-                <Slider
-                    value={this.state.botMaxMoveTime}
-                    disabled={this.state.waitingForMove}
-                    onChange={this.updateBotMaxMoveTime}
-                    valueLabelDisplay="auto"
-                    step={0.5}
-                    marks
-                    min={0.5}
-                    max={10}
-                    style={{ marginLeft: "5px", marginTop: "-10px" }}
-                />
-                <div>
-                    <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.botMove}>Make a bot move</Button>
                     <InfoButton title="Bot Move">
                         When clicked, the bot will make a move for whoever's turn it currently is. The bottom fields will then be updated with information about the move. 'Last move depth' refers to how many moves ahead the bot searched, and 'last moves considered' displays the moves that the bot considered making during the search. For the first 5 moves of the game, the bot will try and play a 'book' move, which is a predefined opening move. If that is the case, the fields will indicate it
                     </InfoButton>
+                    <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.botMove}>Make a bot move</Button>
                 </div>
-                <br />
                 <div>
-                    <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1} variant="contained" onClick={this.undoLastMove}>Undo last move</Button>
                     <InfoButton title="Undo Last Move">
                         When clicked, the last move that was made will be undone as if it never happened
                     </InfoButton>
+                    <Button disabled={this.state.waitingForMove || historyIndex != localHistory.length - 1 || localHistory.length == 1} variant="contained" onClick={this.undoLastMove}>Undo last move</Button>
                 </div>
-                <br />
                 <div>
-                    <Button disabled={this.state.waitingForMove || historyIndex == 0} variant="contained" onClick={this.historyGoBack}>History go back</Button>
                     <InfoButton title="History Go Back">
                         When clicked or after pressing the left arrow key, the board will go back in the move history. Many actions are unavailable when viewing historical moves
                     </InfoButton>
+                    <Button disabled={this.state.waitingForMove || historyIndex == 0} variant="contained" onClick={this.historyGoBack}>History go back</Button>
                 </div>
-                <br />
                 <div>
-                    <Button disabled={this.state.waitingForMove || historyIndex == localHistory.length - 1} variant="contained" onClick={this.historyGoForward}>History go forward</Button>
                     <InfoButton title="History Go Forwards">
                         When clicked or after pressing the right arrow key, the board will go forwards in the move history. Many actions are unavailable when viewing historical moves
                     </InfoButton>
+                    <Button disabled={this.state.waitingForMove || historyIndex == localHistory.length - 1} variant="contained" onClick={this.historyGoForward}>History go forward</Button>
                 </div>
-                <br />
                 <div>
-                    <Button variant="contained" onClick={this.printPieceLocations}>Print Piece Locations</Button>
+                    <InfoButton title="Reset Board">
+                        This will reset the board back to the original position and clear all move history
+                    </InfoButton>
+                    <Button disabled={this.state.waitingForMove} variant="contained" onClick={this.resetGame}>Reset Board</Button>
+                </div>
+                <div>
                     <InfoButton title="Print Piece Locations">
                         This is a debugging tool which will print all of the board indexes of each piece into the console
                     </InfoButton>
+                    <Button variant="contained" onClick={this.printPieceLocations}>Print Piece Locations</Button>
                 </div>
-                <br />
                 <hr style={{ width: "100%" }}/>
-                <br />
                 <Typography style={{ lineHeight: "30px" }} color="textPrimary"><b>Last move color: </b>{`${whiteTurn ? "Black" : "White"}`}</Typography>
                 <Typography style={{ lineHeight: "30px" }} color="textPrimary"><b>Last move time: </b>{`${Math.floor(moveTime)}ms`}</Typography>
                 <Typography style={{ lineHeight: "30px" }} color="textPrimary"><b>Last move depth: </b>{`${searchDepth < 0 ? "Book move" : searchDepth + " ply"}`}</Typography>
+                <Typography style={{ lineHeight: "30px" }} color="textPrimary"><b>Last move engine: </b>{moveEngine}</Typography>
                 {searchDepth == -1 && <Typography style={{ lineHeight: "30px" }} color="textPrimary"><b>Opening: </b>{`${opening}`}</Typography> }
                 <br />
-                <hr style={{ width: "100%" }}/>
-                <br />
-                <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last moves considered:`}</Typography>
+                {movesConsidered.length > 0 &&
+                    <React.Fragment>
+                        <hr style={{ width: "100%" }}/>
+                        <br />
+                        <Typography style={{ lineHeight: "30px" }} color="textPrimary">{`Last moves considered:`}</Typography>
+                    </React.Fragment>
+                }
                 {
                     [...movesConsidered].reverse().map((e, i) => {
                         return (
-                        <Paper key={i} style={{ padding: "5px", marginBottom: i == movesConsidered.length - 1 ? "0" : "10px" }}>
+                        <Paper key={i} style={{ backgroundColor: i == 0 ? "#50fc61" : "", padding: "5px", marginBottom: i == movesConsidered.length - 1 ? "0" : "10px" }}>
                             <Typography color="textSecondary">{this.debugMoveToText(e)}</Typography>
                         </Paper>
                         );
@@ -720,7 +872,10 @@ export class Board extends React.Component<Props, State> {
                 <br />
                 <br />
             </div>
+            {this.statusDialog()}
         </div>
         );
     }
 }
+
+export const Board = withRouter((props) => <_Board {...props} />);
