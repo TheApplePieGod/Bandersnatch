@@ -1,6 +1,8 @@
 import { EvalCommands } from "../definitions";
 import { WasmEngine } from "./wasmEngine";
 
+import('bandersnatch-wasm');
+
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
 
@@ -12,15 +14,26 @@ const ctx: Worker = self as any;
 }
 
 const engine = new WasmEngine();
-require('bandersnatch-wasm').then((w: any) => { 
-    engine.wasm = w;
+let loading = true;
 
-    require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
-        engine.memory = m.memory;
-        engine.initialize();
-        engine.update_max_search_time(3000);
+setInterval(() => {
+    if (!loading)
+        return;
+
+    require('bandersnatch-wasm').then((w: any) => { 
+        engine.wasm = w;
+
+        if (w == undefined || !('Engine' in w))
+            return;
+
+        loading = false;
+        require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
+            engine.memory = m.memory;
+            engine.initialize();
+            engine.update_max_search_time(3000);
+        });
     });
-});
+}, 200);
 
 ctx.addEventListener("message", (e) => {
     switch (e.data.command) {

@@ -6,41 +6,25 @@ use std::{cmp::{max, min}, intrinsics::transmute, mem::swap, usize, vec};
 
 use rand::Rng;
 
-use crate::defs::{
-    set_panic_hook,
-    Value,
-    Piece,
-    CastleStatus,
-    BoardDelta,
-    EvalMove,
-    EvaluationData,
-    DebugMoveOutput,
-    MoveInfo,
-    SavedEvalType,
-    PAWN_SQUARE_TABLE,
-    ROOK_SQUARE_TABLE,
-    KNIGHT_SQUARE_TABLE,
-    BISHOP_SQUARE_TABLE,
-    QUEEN_SQUARE_TABLE,
-    KING_MIDDLE_GAME_SQUARE_TABLE
-};
+use crate::defs::{BISHOP_SQUARE_TABLE, BoardDelta, CastleStatus, DebugMoveOutput, EvalMove, EvaluationData, KING_MIDDLE_GAME_SQUARE_TABLE, KNIGHT_SQUARE_TABLE, LARGEST_SAFE_I32, MoveInfo, PAWN_SQUARE_TABLE, Piece, QUEEN_SQUARE_TABLE, ROOK_SQUARE_TABLE, SMALLEST_SAFE_I32, SavedEvalType, Value, set_panic_hook};
 
 // #[global_allocator]
 // static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen]
-extern {
+extern "C" {
     fn alert(s: &str);
 
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
 
     // workaround to perf.now() in webworkers
-    #[wasm_bindgen(js_namespace = ["self", "performance"])]
-    fn now(s: &str) -> u32;
+    type Date;
+    #[wasm_bindgen(static_method_of = Date)]
+    fn now() -> u32;
 
     #[wasm_bindgen(js_namespace = self)]
-    fn post_eval_message(s: &str, eval: i32);
+    fn post_eval_message(s: String, eval: i32);
 }
 
 #[wasm_bindgen]
@@ -1508,7 +1492,7 @@ impl Engine {
         let mut alpha = alpha;
         let mut beta = beta;
 
-        if can_cancel && now("") - self.search_start_time >= self.search_max_time {
+        if can_cancel && Date::now() - self.search_start_time >= self.search_max_time {
             return 0;
         }
 
@@ -1524,8 +1508,8 @@ impl Engine {
             }
         }
 
-        alpha = max(alpha, i32::MIN + offset + 1);
-        beta = min(beta, i32::MAX - offset - 1);
+        alpha = max(alpha, SMALLEST_SAFE_I32 + offset);
+        beta = min(beta, LARGEST_SAFE_I32 - offset);
         if alpha >= beta {
             return alpha;
         }
@@ -1572,7 +1556,7 @@ impl Engine {
                 &attacked_squares
             );
             if in_check {
-                return i32::MIN + offset; // checkmate, worst possible move
+                return SMALLEST_SAFE_I32 + offset; // checkmate, worst possible move
             } else {
                 return 0; // stalemate, draw
             }
@@ -1686,7 +1670,7 @@ impl Engine {
     }
 
     pub fn find_best_move_iterative(&mut self) {
-        self.search_start_time = now("");
+        self.search_start_time = Date::now();
         let max_depth = 30;
         let mut last_completed_depth = 0;
 
@@ -1695,12 +1679,12 @@ impl Engine {
                 true,
                 i,
                 0,
-                i32::MIN,
-                i32::MAX
+                SMALLEST_SAFE_I32,
+                LARGEST_SAFE_I32
             );
 
-            if now("") - self.search_start_time >= self.search_max_time { // search aborted so dont update move
-                break;
+            if Date::now() - self.search_start_time >= self.search_max_time { // search aborted so dont update move
+               break;
             }
 
             last_completed_depth = i;
@@ -1709,7 +1693,7 @@ impl Engine {
             self.moves_found_this_iteration.clear();
 
             // update eval on frontend if this is being run in the eval worker
-            post_eval_message("", if self.white_turn { self.best_move.score } else { -self.best_move.score });
+            post_eval_message(String::from(""), if self.white_turn { self.best_move.score } else { -self.best_move.score });
 
             if self.best_move.score >= 99999999 { // mate
                 break;
@@ -1791,7 +1775,7 @@ impl Engine {
             return false;
         }
 
-        let start_time = now("");
+        let start_time = Date::now();
         self.moves_found_this_iteration.clear();
         self.moves_found_this_turn.clear();
 
@@ -1799,8 +1783,8 @@ impl Engine {
             false,
             depth,
             0,
-            i32::MIN,
-            i32::MAX
+            SMALLEST_SAFE_I32,
+            LARGEST_SAFE_I32
         );
         if self.best_move.to == self.best_move_this_iteration.to && self.best_move.from == self.best_move_this_iteration.from { // repeating the same move from the last evaluatioin
             log("Attempting to make the same move, aborting");
@@ -1828,7 +1812,7 @@ impl Engine {
             );
         }
 
-        let time_elapsed = now("") - start_time;
+        let time_elapsed = Date::now() - start_time;
         self.time_taken_last_turn = time_elapsed; // ms
 
         true
@@ -1839,7 +1823,7 @@ impl Engine {
             return false;
         }
 
-        let start_time = now("");
+        let start_time = Date::now();
         let last_move = self.best_move;
         self.moves_found_this_iteration.clear();
         self.moves_found_this_turn.clear();
@@ -1864,7 +1848,7 @@ impl Engine {
             true
         );
 
-        let time_elapsed = now("") - start_time;
+        let time_elapsed = Date::now() - start_time;
         self.time_taken_last_turn = time_elapsed; // ms
 
         true

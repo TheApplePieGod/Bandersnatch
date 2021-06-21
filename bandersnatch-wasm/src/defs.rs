@@ -122,6 +122,9 @@ pub struct EvaluationData {
     pub saved_type: SavedEvalType,
 }
 
+pub const SMALLEST_SAFE_I32: i32 = -2147483000;
+pub const LARGEST_SAFE_I32: i32 = 2147483000;
+
 pub const EMPTY_SQUARE_TABLE: [i32; 64] = [
     0,  0,  0,  0,  0,  0,  0,  0,
     0,  0,  0,  0,  0,  0,  0,  0,

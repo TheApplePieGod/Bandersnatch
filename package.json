@@ -15,6 +15,7 @@
     "@material-ui/lab": "4.0.0-alpha.57",
     "bandersnatch-wasm": "file:bandersnatch-wasm/pkg",
     "big-integer": "^1.6.48",
+    "is-ios": "^2.0.1",
     "memoize-one": "^5.1.1",
     "react": "17.0.0",
     "react-dom": "17.0.0",

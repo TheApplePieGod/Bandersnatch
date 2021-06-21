@@ -1,6 +1,8 @@
 import { EvalCommands, EngineCommands, HistoricalBoard, EvalMove, DebugMoveOutput, Piece, notationToIndex, fenToPieceDict, getPieceNameShort, indexToNotation } from "../definitions";
 import { openings } from "./openings";
 
+import('bandersnatch-wasm');
+
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
 
@@ -482,7 +484,7 @@ export class WasmEngine {
 
         this.wasm_engine.parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         //this.wasm_engine.parse_fen("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8");
-        //this.wasm_engine.parse_fen("rnbqkbnr/pppp1ppp/8/4p3/8/2NP4/PPP1PPPP/R1BQKBNR b KQkq - 0 8");
+        //this.wasm_engine.parse_fen("r1bq1rk1/ppp2ppp/3p1n2/2b1p3/2BnP3/2NP1PN1/PPP3PP/R1BQ1RK1 b - - 0 8");
 
         this.push_history();
     }
@@ -499,26 +501,36 @@ export class WasmEngine {
 }
 
 const engine = new WasmEngine();
+let loading = true;
 
 ctx.addEventListener("message", (e) => {
     switch (e.data.command) {
         case EngineCommands.Ready:
         {
             // Load the web assembly (workaround because regular importing did not seem to work right with webpack 5)
-            require('bandersnatch-wasm').then((w: any) => { 
-                engine.wasm = w;
+            setInterval(() => {
+                if (!loading)
+                    return;
 
-                require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
-                    engine.memory = m.memory;
-                    engine.initialize();
-                    //engine.set_thread_count(e.data.threadCount);
-                    //engine.set_thread_index(e.data.threadIndex);
+                require('bandersnatch-wasm').then((w: any) => { 
+                    engine.wasm = w;
 
-                    ctx.postMessage({
-                        command: e.data.command,
+                    if (w == undefined || !('Engine' in w))
+                        return;
+
+                    loading = false;
+                    require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
+                        engine.memory = m.memory;
+                        engine.initialize();
+                        //engine.set_thread_count(e.data.threadCount);
+                        //engine.set_thread_index(e.data.threadIndex);
+    
+                        ctx.postMessage({
+                            command: e.data.command,
+                        });
                     });
                 });
-            });
+            }, 200);            
 
             break;
         }
