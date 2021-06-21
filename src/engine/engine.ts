@@ -5,6 +5,8 @@ import { openings } from "./openings";
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
 
+console.log("js worker init");
+
 interface BoardDelta { // set values to -1 to ignore
     index: number;
     piece: number;
