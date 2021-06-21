@@ -505,8 +505,13 @@ ctx.addEventListener("message", (e) => {
         case EngineCommands.Ready:
         {
             // Load the web assembly (workaround because regular importing did not seem to work right with webpack 5)
+            import('bandersnatch-wasm').then((w: any) => {
+                console.log('import', w)
+            })
+
             require('bandersnatch-wasm').then((w: any) => { 
                 engine.wasm = w;
+                console.log('require', w)
 
                 require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
                     engine.memory = m.memory;
