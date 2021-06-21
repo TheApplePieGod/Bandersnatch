@@ -499,6 +499,7 @@ export class WasmEngine {
 }
 
 const engine = new WasmEngine();
+let loading = true;
 
 ctx.addEventListener("message", (e) => {
     switch (e.data.command) {
@@ -507,11 +508,17 @@ ctx.addEventListener("message", (e) => {
             // Load the web assembly (workaround because regular importing did not seem to work right with webpack 5)
             import('bandersnatch-wasm');
 
-            setTimeout(() => {
+            setInterval(() => {
+                if (!loading)
+                    return;
+
                 require('bandersnatch-wasm').then((w: any) => { 
                     engine.wasm = w;
-                    //console.log('require', w)
-    
+                    
+                    if (w == undefined)
+                        return;
+
+                    loading = false;
                     require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
                         engine.memory = m.memory;
                         engine.initialize();
@@ -523,7 +530,7 @@ ctx.addEventListener("message", (e) => {
                         });
                     });
                 });
-            }, 1000);            
+            }, 200);            
 
             break;
         }
