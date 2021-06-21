@@ -21,9 +21,10 @@ setInterval(() => {
     require('bandersnatch-wasm').then((w: any) => { 
         engine.wasm = w;
 
-        if (w == undefined)
+        if (w == undefined || !('Engine' in w))
             return;
 
+        console.log(w);
         loading = false;
         require('bandersnatch-wasm/bandersnatch_wasm_bg.wasm').then((m: any) => { 
             engine.memory = m.memory;

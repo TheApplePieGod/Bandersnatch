@@ -515,7 +515,7 @@ ctx.addEventListener("message", (e) => {
                 require('bandersnatch-wasm').then((w: any) => { 
                     engine.wasm = w;
 
-                    if (w == undefined)
+                    if (w == undefined || !('Engine' in w))
                         return;
 
                     console.log(w);
