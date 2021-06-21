@@ -506,7 +506,7 @@ ctx.addEventListener("message", (e) => {
         case EngineCommands.Ready:
         {
             // Load the web assembly (workaround because regular importing did not seem to work right with webpack 5)
-            import('bandersnatch-wasm');
+            import('bandersnatch-wasm').then((w: any) => console.log("import", w));
 
             setInterval(() => {
                 if (!loading)
@@ -515,6 +515,8 @@ ctx.addEventListener("message", (e) => {
                 require('bandersnatch-wasm').then((w: any) => { 
                     engine.wasm = w;
                     
+                    console.log("require", w);
+
                     if (w == undefined)
                         return;
 
