@@ -6,7 +6,7 @@ import { Board } from './board';
 
 const useStyles = makeStyles(theme => ({
     content: {
-
+        
     }
 }));
 

@@ -4,6 +4,7 @@ import { Piece, getPieceName, getPieceNameShort, EngineCommands, Sounds, EvalMov
 import EngineWorker from "worker-loader!../../engine/engine";
 import WasmEngineWorker from "worker-loader!../../engine/wasmEngine";
 import EvalWorker from "worker-loader!../../engine/evaluation";
+import WasmEvalWorker from "worker-loader!../../engine/evaluationWasm";
 import { EvaluationBar } from './evaluationBar';
 import { InfoButton } from './infoButton';
 import { SimpleDialog } from './simpleDialog';
@@ -11,6 +12,9 @@ import SettingsIcon from '@material-ui/icons/Settings';
 import * as theme from '../theme';
 import InfoIcon from '@material-ui/icons/Info';
 import { RouterProps, withRouter } from 'react-router-dom';
+
+//@ts-ignore
+import { default as isIOS } from 'is-ios';
 
 interface Props extends RouterProps {
 
@@ -56,7 +60,7 @@ class _Board extends React.Component<Props, State> {
     images: Record<number, HTMLImageElement>;
     engineWorker = new EngineWorker();
     wasmWorker = new WasmEngineWorker();
-    evalWorker = new EvalWorker();
+    evalWorker = isIOS ? new EvalWorker() : new WasmEvalWorker();
     
     evalTimeout: any = 0;
     nextBoardToEval: HistoricalBoard | undefined = undefined;
@@ -91,7 +95,7 @@ class _Board extends React.Component<Props, State> {
             botMaxMoveTime: 3,
             settingsTabOpen: false,
             statusDialogText: "",
-            currentEngine: 0,
+            currentEngine: isIOS ? 0 : 1,
             makeBookMoves: true,
         };
 
@@ -181,6 +185,7 @@ class _Board extends React.Component<Props, State> {
                     <div style={{ display: "flex", alignItems: "center" }}>
                         <InfoButton title="AI Engine" dark>
                             Choose which engine to run the AI with. To learn more about the individual engines, read the 'about' section of the site. WebAssembly is the recommended engine to use, and the engine can be changed at any point during a game.
+                            <b> NOTE: the WebAssembly engine has been disabled for IOS for the forseeable future, </b> since it was mysteriously not working.
                         </InfoButton>
                         <Typography color="textSecondary">Engine:</Typography>
                         <FormControl>
@@ -190,7 +195,7 @@ class _Board extends React.Component<Props, State> {
                                 style={{ color: theme.PALETTE_LIGHT_BLACK, borderColor: theme.PALETTE_BLACK, marginLeft: "0.5rem" }}
                             >
                                 <MenuItem style={{ color: theme.PALETTE_LIGHT_BLACK }} value={0}>Native JS</MenuItem>
-                                <MenuItem style={{ color: theme.PALETTE_LIGHT_BLACK }} value={1}>WebAssembly</MenuItem>
+                                {!isIOS && <MenuItem style={{ color: theme.PALETTE_LIGHT_BLACK }} value={1}>WebAssembly</MenuItem>}
                             </Select>
                         </FormControl>
                     </div>
@@ -522,7 +527,7 @@ class _Board extends React.Component<Props, State> {
             this.images[key] = img;
         }
 
-        setTimeout(() => this.engine().postMessage({ command: EngineCommands.Ready }), 2000);
+        setTimeout(() => this.engine().postMessage({ command: EngineCommands.Ready }), 200);
     }
 
     startRendering = () => {
