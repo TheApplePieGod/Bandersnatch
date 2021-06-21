@@ -573,6 +573,9 @@ class _Board extends React.Component<Props, State> {
         window.removeEventListener("keydown", this.onKeyDown);
         window.removeEventListener("resize", this.handleResize);
         clearInterval(this.evalTimeout);
+        this.evalWorker.terminate();
+        this.wasmWorker.terminate();
+        this.engineWorker.terminate();
     }
 
     drawBoard = (ctx: CanvasRenderingContext2D) => {

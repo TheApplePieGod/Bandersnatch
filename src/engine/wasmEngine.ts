@@ -484,7 +484,7 @@ export class WasmEngine {
 
         this.wasm_engine.parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         //this.wasm_engine.parse_fen("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8");
-        //this.wasm_engine.parse_fen("rnbqkbnr/pppp1ppp/8/4p3/8/2NP4/PPP1PPPP/R1BQKBNR b KQkq - 0 8");
+        //this.wasm_engine.parse_fen("r1bq1rk1/ppp2ppp/3p1n2/2b1p3/2BnP3/2NP1PN1/PPP3PP/R1BQ1RK1 b - - 0 8");
 
         this.push_history();
     }
@@ -508,8 +508,6 @@ ctx.addEventListener("message", (e) => {
         case EngineCommands.Ready:
         {
             // Load the web assembly (workaround because regular importing did not seem to work right with webpack 5)
-            //import('bandersnatch-wasm');
-
             setInterval(() => {
                 if (!loading)
                     return;
