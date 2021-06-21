@@ -1,6 +1,8 @@
 import { EvalCommands, EngineCommands, HistoricalBoard, EvalMove, DebugMoveOutput, Piece, notationToIndex, fenToPieceDict, getPieceNameShort, indexToNotation } from "../definitions";
 import { openings } from "./openings";
 
+import('bandersnatch-wasm');
+
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
 

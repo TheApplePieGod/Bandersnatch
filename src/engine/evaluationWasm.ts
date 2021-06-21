@@ -1,6 +1,8 @@
 import { EvalCommands } from "../definitions";
 import { WasmEngine } from "./wasmEngine";
 
+import('bandersnatch-wasm');
+
 // We alias self to ctx and give it our newly created type
 const ctx: Worker = self as any;
 
