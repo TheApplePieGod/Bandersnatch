@@ -483,8 +483,8 @@ export class WasmEngine {
         this.initialized = true;
 
         this.wasm_engine.parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-        //this.wasm_engine.parse_fen("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8");
-        //this.wasm_engine.parse_fen("r1bq1rk1/ppp2ppp/3p1n2/2b1p3/2BnP3/2NP1PN1/PPP3PP/R1BQ1RK1 b - - 0 8");
+        //this.wasm_engine.parse_fen("8/2p5/8/KP6/8/8/8/7k b - - 0 8");
+        //this.wasm_engine.parse_fen("r3kb1r/1p1bq1pp/p2p1n2/2pPnpB1/8/N1N5/PPP1BPPP/R2QK2R w KQkq - 0 8");
 
         this.push_history();
     }
