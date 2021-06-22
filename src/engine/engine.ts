@@ -113,7 +113,6 @@ export class Engine {
         //startingFEN = "8/2p5/8/KP5r/8/8/8/7k b - - 0 1"; // en passant pin test
         //startingFEN = "8/k7/3p4/p2P1p2/P2P1P2/8/8/K7 w - - 0 1"; // hard endgame draw test
         //startingFEN = "8/2N4p/1PK3p1/8/4k3/4P3/1r5P/8 b - - 0 1"; // passed pawn detection test
-        //startingFEN = "r1b1kb1r/pp2q1pp/2p4n/3p1P2/3Q4/2NBB3/PPP2PPP/R3K2R w KQkq - 2 10";
 
         // the bigint casts should and do work so just ignore the ts type error
 
@@ -565,15 +564,33 @@ export class Engine {
                     if (capturesOnly && this.board[valid[k]] == Piece.Empty)
                         continue;
 
-                    if (inCheck || isPinned || i == Piece.King_W || i == Piece.King_B) { // more optimizations here?
+                    const isEnPassant = valid[k] == this.enPassantSquare;
+                    if (isEnPassant || inCheck || isPinned || i == Piece.King_W || i == Piece.King_B) { // more optimizations here?
                     //if (false) {
                         const pieceBackup = this.board[valid[k]];
                         const backup2 = this.board[location];
                         this.board[valid[k]] = i;
                         this.board[location] = Piece.Empty;
+
+                        if (isEnPassant) {
+                            if (i == Piece.Pawn_W) {
+                                this.board[valid[k] + 8] = Piece.Empty;
+                            } else if (i == Piece.Pawn_B) {
+                                this.board[valid[k] - 8] = Piece.Empty;
+                            }
+                        }
+
                         const attacked: number[] = this.getAttackedSquares(this.whiteTurn, valid[k]);
                         this.board[valid[k]] = pieceBackup;
                         this.board[location] = backup2;
+                        if (isEnPassant) {
+                            if (i == Piece.Pawn_W) {
+                                this.board[valid[k] + 8] = Piece.Pawn_B;
+                            } else if (i == Piece.Pawn_B) {
+                                this.board[valid[k] - 8] = Piece.Pawn_W;
+                            }
+                        }
+
                         if (i == Piece.King_W || i == Piece.King_B) {
                             if (attacked.includes(valid[k]))
                                 continue;
@@ -682,9 +699,11 @@ export class Engine {
             if (movingPiece == Piece.Pawn_W) {
                 this.boardDelta.push({ index: toIndex + 8, piece: Piece.Pawn_B, target: -1 });
                 this.board[toIndex + 8] = Piece.Empty;
+                this.removePiece(Piece.Pawn_B, toIndex + 8);
             } else if (movingPiece == Piece.Pawn_B) {
                 this.boardDelta.push({ index: toIndex - 8, piece: Piece.Pawn_W, target: -1 });
                 this.board[toIndex - 8] = Piece.Empty;
+                this.removePiece(Piece.Pawn_W, toIndex - 8);
             }
         }
 
@@ -724,14 +743,14 @@ export class Engine {
         }
     }
 
-    unmakeMove = (deltas: BoardDelta[]) => {
+    unmakeMove = (deltas: BoardDelta[], startingEnPassant: number) => {
         this.whiteTurn = !this.whiteTurn;
 
         for (let i = 0; i < deltas.length; i++) {
             if (deltas[i].piece != Piece.Empty) { // ignore any empty piece entries
                 if (deltas[i].index == -1) { // if the original index is -1, it means the piece was created from promotion, so remove the piece
                     this.removePiece(deltas[i].piece, deltas[i].target);
-                } else if (this.board[deltas[i].index] != Piece.Empty) { // was captured so add the piece back to register
+                } else if (this.board[deltas[i].index] != Piece.Empty || (deltas[i].piece == Piece.Pawn_B && deltas[i].index - 8 == startingEnPassant) || (deltas[i].piece == Piece.Pawn_W && deltas[i].index + 8 == startingEnPassant)) { // was captured so add the piece back to register
                     this.pieceLocations[deltas[i].piece].push(deltas[i].index);
                 } else if (deltas[i].target != -1) { // otherwise just move it back
                     const foundIndex = this.pieceLocations[deltas[i].piece].indexOf(deltas[i].target);
@@ -1212,7 +1231,7 @@ export class Engine {
             let evaluation: number = -1 * this.findBestMove(canCancel, depth - 1, offset + 1, -beta, -alpha);
 
             // unmake the move
-            this.unmakeMove(deltas);
+            this.unmakeMove(deltas, oldEnPassant);
             this.boardHash = startingHash;
             this.enPassantSquare = oldEnPassant;
             this.castleStatus = oldCastleStatus;
@@ -1273,7 +1292,7 @@ export class Engine {
             evaluation = -1 * this.quiescenceSearch(-beta, -alpha);
 
             // unmake the move
-            this.unmakeMove(deltas);
+            this.unmakeMove(deltas, oldEnPassant);
             this.enPassantSquare = oldEnPassant;
 
             if (evaluation >= beta)
@@ -1310,7 +1329,7 @@ export class Engine {
 
             totalMoves += this.calculateAllPossibleMoves(depth - 1);
 
-            this.unmakeMove(deltas);
+            this.unmakeMove(deltas, oldEnPassant);
             this.boardHash = startingHash;
             this.enPassantSquare = oldEnPassant;
             this.castleStatus = oldCastleStatus;

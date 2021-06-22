@@ -418,6 +418,7 @@ impl Engine {
                     target: -1
                 });
                 self.board[to_index + 8] = Piece::Empty;
+                self.remove_piece(Piece::Pawn_B, to_index + 8);
             } else if moving_piece == Piece::Pawn_B {
                 self.board_deltas.push(BoardDelta {
                     index: to_index as i32 - 8,
@@ -425,6 +426,7 @@ impl Engine {
                     target: -1
                 });
                 self.board[to_index - 8] = Piece::Empty;
+                self.remove_piece(Piece::Pawn_W, to_index - 8);
             }
         }
 
@@ -460,7 +462,7 @@ impl Engine {
     }
 
     // cannot be pub since wasm_bindgen doesnt support struct slice refs
-    fn unmake_move(&mut self, deltas: &[BoardDelta]) {
+    fn unmake_move(&mut self, deltas: &[BoardDelta], starting_en_passant: i32) {
         self.white_turn = !self.white_turn;
 
         for elem in deltas.iter() {
@@ -471,7 +473,7 @@ impl Engine {
             if elem.piece != Piece::Empty { // ignore any empty piece entries
                 if elem.index == -1 { // if the original index is -1, it means the piece was created from promotion, so remove the piece
                     self.remove_piece(elem.piece, target_as_usize)
-                } else if self.board[index_as_usize] != Piece::Empty { // was captured so add the piece back to register
+                } else if self.board[index_as_usize] != Piece::Empty || (elem.piece == Piece::Pawn_B && elem.index - 8 == starting_en_passant) || (elem.piece == Piece::Pawn_W && elem.index + 8 == starting_en_passant) { // was captured or en passant so add the piece back to register
                     self.piece_locations[piece_as_usize].push(index_as_usize);
                 } else if elem.target != -1 { // otherwise just move it back
                     match self.piece_locations[piece_as_usize]
@@ -1301,12 +1303,20 @@ impl Engine {
                         continue;
                     }
 
-                    if in_check || is_pinned || piece == Piece::King_W || piece == Piece::King_B {
+                    let is_en_passant = checking_index as i32 == self.en_passant_square; 
+                    if is_en_passant || in_check || is_pinned || piece == Piece::King_W || piece == Piece::King_B {
                         // move the piece
                         let piece_backup = self.board[checking_index];
                         let second_backup = self.board[location];
                         self.board[checking_index] = piece;
                         self.board[location] = Piece::Empty;
+                        if is_en_passant {
+                            if piece == Piece::Pawn_W {
+                                self.board[checking_index + 8] = Piece::Empty;
+                            } else if piece == Piece::Pawn_B {
+                                self.board[checking_index - 8] = Piece::Empty;
+                            }
+                        }
 
                         // get the attacked squares
                         local_attacked.clear();
@@ -1320,6 +1330,14 @@ impl Engine {
                         // move the pieces back
                         self.board[checking_index] = piece_backup;
                         self.board[location] = second_backup;
+                        if is_en_passant {
+                            if piece == Piece::Pawn_W {
+                                self.board[checking_index + 8] = Piece::Pawn_B;
+                            } else if piece == Piece::Pawn_B {
+                                self.board[checking_index - 8] = Piece::Pawn_W;
+                            }
+                        }
+
                         if piece == Piece::King_W || piece == Piece::King_B {
                             if local_attacked.contains(&checking_index) {
                                 continue;
@@ -1439,7 +1457,7 @@ impl Engine {
 
             total_moves += self.calculate_all_possible_moves(depth - 1);
 
-            self.unmake_move(stored_deltas.as_slice());
+            self.unmake_move(stored_deltas.as_slice(), starting_en_passant);
             self.board_hash = starting_hash;
             self.en_passant_square = starting_en_passant;
             self.castle_status = starting_castle_status;
@@ -1619,7 +1637,7 @@ impl Engine {
             );
 
             // unmake the move
-            self.unmake_move(&stored_deltas);
+            self.unmake_move(&stored_deltas, starting_en_passant);
             self.board_hash = starting_hash;
             self.en_passant_square = starting_en_passant;
             self.castle_status = starting_castle_status;
@@ -1756,7 +1774,7 @@ impl Engine {
             );
 
             // unmake the move
-            self.unmake_move(&stored_deltas);
+            self.unmake_move(&stored_deltas, starting_en_passant);
             self.en_passant_square = starting_en_passant;
 
             if evaluation >= beta {
