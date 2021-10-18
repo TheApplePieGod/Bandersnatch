@@ -784,7 +784,8 @@ class _Board extends React.Component<Props, State> {
     updateBotMaxMoveTime = (e: React.ChangeEvent<{}>, value: number | number[]) => {
         if (!this.state.waitingForMove) {
             this.setState({ botMaxMoveTime: value as number });
-            this.engine().postMessage({ command: EngineCommands.UpdateMaxMoveTime, time: (value as number) * 1000 });
+            this.engineWorker.postMessage({ command: EngineCommands.UpdateMaxMoveTime, time: (value as number) * 1000 });
+            this.wasmWorker.postMessage({ command: EngineCommands.UpdateMaxMoveTime, time: (value as number) * 1000 });
         }
     }
 
